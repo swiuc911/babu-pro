@@ -101,7 +101,7 @@ local function initFonts()
     FONT,      picked = mk(T.font, T.font_size, 400)
     FONT_B            = mk(T.font, T.font_size, 600)
     FONT_LOGO         = mk(T.font_logo, T.font_size + 2, 700) or FONT_B
-    print("[femboytap] font: " .. tostring(picked))
+    print("[dctap] font: " .. tostring(picked))
 end
 
 local function fontInitCoro()
@@ -765,7 +765,7 @@ function Section:_widget(wd, x, y, w)
         if wd.fn then
             UI._x, UI._cy, UI._w = x, y, w
             local ok, err = pcall(wd.fn, UI, x, y, w)
-            if not ok then print("[femboytap] custom widget error: " .. tostring(err)) end
+            if not ok then print("[dctap] custom widget error: " .. tostring(err)) end
             local used = UI._cy - y
             wd._measured = used > 0 and used or wd.h
         end
@@ -819,7 +819,7 @@ local function renderSectionAt(s, x, y, w)
     if clipTop and (y + h) <= clipTop then return h end
     local rh = h
     local ok, err = pcall(function() rh = s:render(x, y, w) or h end)
-    if not ok then print("[femboytap] section '" .. tostring(s.title) .. "' error: " .. tostring(err)); return h end
+    if not ok then print("[ffdtap] section '" .. tostring(s.title) .. "' error: " .. tostring(err)); return h end
     return rh
 end
 
@@ -1724,7 +1724,7 @@ function M:_frame()
     clipTop, clipBottom = win.y + T.titlebar, win.y + win.h
     if tab then
         local ok, err = pcall(function() tab:render(cx, cy, cw) end)
-        if not ok then print("[femboytap] tab '" .. tostring(tab.name) .. "' error: " .. tostring(err)) end
+        if not ok then print("[dc] tab '" .. tostring(tab.name) .. "' error: " .. tostring(err)) end
     end
     clipTop, clipBottom = nil, nil
 
