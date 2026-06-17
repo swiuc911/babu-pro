@@ -1,1530 +1,1850 @@
-local BASE        = rawget(_G, "SWİUC_BASE") or "https://raw.githubusercontent.com/swiuc911/babu-pro/main/"
-local GUILIB_URL  = BASE .. "swiuc_guilib.lua"
-local CHANGER_URL = BASE .. "swiuc_changer.lua"
+local M = {}
+M.VERSION = "1.0"
 
-local ffi = rawget(_G, "ffi")
+local T = {
+    x = 360, y = 200, w = 600, h = 440,
 
-local function r_ptr(a) return tonumber(ffi.cast("uint64_t*", a)[0]) end
-local function valid(p) return p ~= nil and p > 0x10000 and p < 0x7FFFFFFFFFFF end
+    accent    = { 139, 124, 246 },
+    accent_bg = { 40, 36, 64, 255 },
+    bg        = { 20, 20, 26, 255 },
+    bg2       = { 15, 15, 20, 255 },
+    section   = { 25, 25, 32, 255 },
+    border    = { 44, 44, 56, 255 },
+    divider   = { 36, 36, 46, 255 },
+    text      = { 188, 188, 198, 255 },
+    textdim   = { 112, 112, 126, 255 },
+    texthi    = { 240, 240, 245, 255 },
+    widget    = { 33, 33, 42, 255 },
+    widgethi  = { 45, 45, 57, 255 },
 
-local SIG = {
-    vm = "E8 ?? ?? ?? ?? 48 8B CB E8 ?? ?? ?? ?? 84 C0 74 11 F3 0F 10 45 B0",
+    title     = "SWİUC",
+    title_tld = ".CC",
+    titlebar  = 44,
+    pad       = 14,
+    sec_gap   = 12,
+
+    font      = { "Oxanium", "Space Grotesk", "Varela Round", "Tahoma", "Verdana" },
+    font_logo = { "Space Grotesk", "Oxanium", "Tahoma" },
+    font_size = 14,
+
+    notif_pos    = "bottom-right",
+    notif_w      = 290,
+    notif_margin = 18,
+    notif_life   = 3.5,
+    notif_info    = { 139, 124, 246 },
+    notif_success = { 80, 200, 120 },
+    notif_error   = { 235, 90, 90 },
 }
 
-local function fetch(url, cacheFile)
-    local src
-    local bust = url .. "?nocache=" .. tostring({}):gsub("%W", "")
-    pcall(function() src = http.Get(bust) end)
-    if type(src) ~= "string" or #src <= 500 then pcall(function() src = http.Get(url) end) end
-    if type(src) == "string" and #src > 500 then
-        pcall(function()
-            local f = file.Open(cacheFile, "w")
-            if f then f:Write(src); f:Close() end
-        end)
-        return src, "server"
+local WH = { check = 28, button = 36, slider = 36, combo = 52, multicombo = 52, input = 52, color = 28 }
+local function wheight(wd)
+    if wd.kind == "listbox" then
+        return ((wd.label and wd.label ~= "") and 18 or 0) + wd.h + 6
     end
-    pcall(function()
-        local f = file.Open(cacheFile, "r")
-        if f then src = f:Read(); f:Close() end
-    end)
-    if type(src) == "string" and #src > 500 then return src, "cache" end
-    return nil
+    if wd.kind == "custom" then return wd._measured or wd.h end
+    return WH[wd.kind] or 28
 end
 
-local function load(url, cacheFile, name)
-    local src, where = fetch(url, cacheFile)
-    if not src then print("[femboytap] FATAL: cannot load " .. name) return nil end
-    local chunk, err = loadstring(src, "=" .. cacheFile)
-    if not chunk then print("[femboytap] " .. name .. " compile error: " .. tostring(err)) return nil end
-    local ok, mod = pcall(chunk)
-    if not ok then print("[femboytap] " .. name .. " run error: " .. tostring(mod)) return nil end
-    print("[femboytap] " .. name .. " loaded from " .. tostring(where))
-    return mod
+local ANIM = { open = 13, tab = 17 }
+
+local floor, sqrt, mmin, mmax, mabs = math.floor, math.sqrt, math.min, math.max, math.abs
+local function rnd(n) return floor(n + 0.5) end
+local function clamp(v, lo, hi) if v < lo then return lo elseif v > hi then return hi else return v end end
+local function smooth(t) t = clamp(t, 0, 1); return t * t * (3 - 2 * t) end
+
+local function decimalsOf(step)
+    if not step or step >= 1 then return 0 end
+    local d, s = 0, step
+    while s < 1 and d < 6 do
+        s = s * 10; d = d + 1
+        if mabs(s - floor(s + 0.5)) < 1e-7 then break end
+    end
+    return d
 end
 
-local M = load(GUILIB_URL, ".\\femboytap_lua\\femboytap_guilib.lua", "guilib")
-if type(M) ~= "table" then return end
+local ALPHA = 1
+local DT = 0
+local clipTop, clipBottom
 
-local C = load(CHANGER_URL, ".\\femboytap_lua\\femboytap_changer.lua", "changer")
-if type(C) ~= "table" then return end
-
-local floor = math.floor
-
-local VM = {}
-local HS = {}
-
-local weaponLb, skinLb, skinWd
-local sWear, sSeed, cbAuto
-local modelLb, modelWd, modelPaths
-local cbVm, vmX, vmY, vmZ
-local hsOn, hsCmb, hsCmbWd, hsVol
-local ksOn, ksCmb, ksCmbWd, ksVol
-local hlOn, hlMiss, hlHit, hlHurt, hlKill
-local wmOn, wmElems, wmPos
-local rgOn, rgCmb, rgCmbWd, rgPen, rgMin
-local ncOn, ncMode, ncSrc, ncText, ncSpeed
-local vrOn, vrMode
-local SND_NAMES, SND_PATHS
-
-local lastModelSel = -1
-local curPaints    = { 0 }
-local lastSel      = -1
-local lastSig      = nil
-local lastAutoDef  = nil
-local lastAuto     = false
-
-local function item()     return C.items[weaponLb:Get()] end
-local function paint()    return curPaints[skinLb:Get()] or 0 end
-local function settings() return sWear:Get(), floor(sSeed:Get() + 0.5) end
-
-local function applySelected()
-    local it = item(); if not it then return end
-    local w, s = settings()
-    C.apply(it, paint(), w, s)
+local function approach(cur, target, speed)
+    return cur + (target - cur) * clamp(DT * speed, 0, 1)
 end
 
-local function sig()
-    local it = item(); if not it then return "none" end
-    local w, s = settings()
-    return it.def.."|"..paint().."|"..floor(w * 100000).."|"..s
-end
-
-local function autoFollow()
-    if not cbAuto:Get() then lastAutoDef = nil; return end
-    local def = C.activeDef(); if not def then return end
-    if not C.defToItem[def] and C.isKnife(def) and C.knifeDef() then def = C.knifeDef() end
-    if def == lastAutoDef then return end
-    local idx = C.defToItem[def]; if not idx then return end
-    lastAutoDef = def
-    weaponLb:Set(idx)
-end
-
-local function autoApply()
-    local s = sig()
-    if s == lastSig then return end
-    lastSig = s
-    applySelected()
-end
-
-local function syncSkins()
-    local sel = weaponLb:Get()
-    if sel == lastSel then return end
-    lastSel = sel
-    local it = C.items[sel]; if not it then return end
-    local names, paints = C.skinList(it.def)
-    curPaints     = paints
-    skinWd.items  = names
-    skinWd.value  = 1
-    skinWd.scroll = 0
-    local c = C.getCfg(it.def)
-    if c then
-        sWear:Set(c.wear); sSeed:Set(c.seed)
-        for i = 2, #paints do
-            if paints[i] == c.paint then skinWd.value = i; break end
-        end
-    end
-    lastSig = sig()
-end
-
-local function persistOpts()
-    local v = cbAuto:Get()
-    if v ~= lastAuto then lastAuto = v; C.setOpt("autoFollow", v) end
-end
-
-local function syncModel()
-    if not modelLb then return end
-    local sel = modelLb:Get()
-    if sel == lastModelSel then return end
-    lastModelSel = sel
-    C.setLocalModel(modelPaths and modelPaths[sel] or nil)
-end
-
-do
-    local page, match, origRel, ok = nil, nil, nil, false
-
-    local function r_i32(a) return ffi.cast("int32_t*",  a)[0] end
-    local function w_u8 (a, v) ffi.cast("uint8_t*", a)[0] = v end
-    local function w_i32(a, v) ffi.cast("int32_t*", a)[0] = v end
-    local function w_f32(a, v) ffi.cast("float*",   a)[0] = v end
-
-    local function le64(v)
-        local t = {}
-        for _ = 1, 8 do t[#t + 1] = v % 256; v = math.floor(v / 256) end
-        return t
-    end
-
-    local function alloc_near(target, size)
-        local gran = 0x10000
-        local base = target - (target % gran)
-        for i = 1, 0x8000 do
-            local lo, hi = base - i * gran, base + i * gran
-            if lo > 0x10000 then
-                local p = ffi.C.VirtualAlloc(ffi.cast("void*", lo), size, 0x3000, 0x40)
-                if p ~= nil then return p end
-            end
-            local p2 = ffi.C.VirtualAlloc(ffi.cast("void*", hi), size, 0x3000, 0x40)
-            if p2 ~= nil then return p2 end
-        end
-        return nil
-    end
-
-    local function install()
-        if type(ffi) ~= "table" then print("[femboytap] VM: no ffi"); return false end
-        pcall(function() ffi.cdef [[
-            void* VirtualAlloc(void*, size_t, uint32_t, uint32_t);
-            int   VirtualProtect(void*, size_t, uint32_t, uint32_t*);
-            void* GetCurrentProcess(void);
-            int   FlushInstructionCache(void*, void*, size_t);
-        ]] end)
-
-        local a = mem.FindPattern("client.dll", SIG.vm)
-        if not a or a == 0 then print("[femboytap] VM: sig not found"); return false end
-        match = a
-        local orig = a + 5 + r_i32(a + 1)
-
-        local p = alloc_near(orig, 0x1000)
-        if p == nil then print("[femboytap] VM: alloc failed"); return false end
-        page = tonumber(ffi.cast("uintptr_t", p))
-        local code = page + 16
-
-        local b = { 0x53, 0x56, 0x48,0x83,0xEC,0x28, 0x48,0x89,0xD6, 0x48,0xB8 }
-        for _, v in ipairs(le64(orig)) do b[#b + 1] = v end
-        for _, v in ipairs({ 0xFF,0xD0, 0x48,0xBB }) do b[#b + 1] = v end
-        for _, v in ipairs(le64(page)) do b[#b + 1] = v end
-        for _, v in ipairs({
-            0x8B,0x0B, 0x85,0xC9, 0x74,0x2B,
-            0xF3,0x0F,0x10,0x4B,0x04, 0xF3,0x0F,0x58,0x0E, 0xF3,0x0F,0x11,0x0E,
-            0xF3,0x0F,0x10,0x4B,0x08, 0xF3,0x0F,0x58,0x4E,0x04, 0xF3,0x0F,0x11,0x4E,0x04,
-            0xF3,0x0F,0x10,0x4B,0x0C, 0xF3,0x0F,0x58,0x4E,0x08, 0xF3,0x0F,0x11,0x4E,0x08,
-            0x48,0x83,0xC4,0x28, 0x5E, 0x5B, 0xC3,
-        }) do b[#b + 1] = v end
-        for i = 0, #b - 1 do w_u8(code + i, b[i + 1]) end
-        w_i32(page, 0); w_f32(page + 4, 0); w_f32(page + 8, 0); w_f32(page + 12, 0)
-
-        local rel = code - (match + 5)
-        if rel < -2147483648 or rel > 2147483647 then print("[femboytap] VM: rel32 overflow"); return false end
-        origRel = r_i32(match + 1)
-        local old = ffi.new("uint32_t[1]")
-        ffi.C.VirtualProtect(ffi.cast("void*", match), 5, 0x40, old)
-        w_i32(match + 1, rel)
-        ffi.C.VirtualProtect(ffi.cast("void*", match), 5, old[0], old)
-        pcall(function() ffi.C.FlushInstructionCache(ffi.C.GetCurrentProcess(), ffi.cast("void*", match), 5) end)
-        print("[femboytap] VM: installed")
-        return true
-    end
-
-    pcall(function() ok = install() end)
-
-    function VM.set(on, x, y, z)
-        if not ok or not page then return end
-        w_i32(page, on and 1 or 0)
-        w_f32(page + 4, x or 0)
-        w_f32(page + 8, y or 0)
-        w_f32(page + 12, z or 0)
-    end
-
-    function VM.uninstall()
-        if not (ok and match and origRel) then return end
-        pcall(function()
-            local old = ffi.new("uint32_t[1]")
-            ffi.C.VirtualProtect(ffi.cast("void*", match), 5, 0x40, old)
-            w_i32(match + 1, origRel)
-            ffi.C.VirtualProtect(ffi.cast("void*", match), 5, old[0], old)
-        end)
-    end
-end
-pcall(function() callbacks.Register("Unload", function() pcall(VM.uninstall) end) end)
-
-local lastVm = nil
-local function syncVm()
-    local on = cbVm:Get()
-    local x, y, z = vmX:Get(), vmY:Get(), vmZ:Get()
-    VM.set(on, x, y, z)
-    local s = (on and "1" or "0") .. ":" .. x .. ":" .. y .. ":" .. z
-    if s ~= lastVm then
-        lastVm = s
-        C.setOpt("vm_on", on)
-        C.setOpt("vm_x", x); C.setOpt("vm_y", y); C.setOpt("vm_z", z)
-    end
-end
-
-do
-    local f = ffi
-    local FFF, FNF, FCL, GCD, WINEXEC
-    local soundDir = ".\\csgo\\sounds"
-    if type(f) == "table" then
-        pcall(function() f.cdef [[ void* GetModuleHandleA(const char*); void* GetProcAddress(void*, const char*); ]] end)
-        pcall(function() f.cdef [[ typedef struct { uint32_t attr; uint8_t pad[40]; char nm[260]; char alt[14]; } AWSNDFD; ]] end)
-        local function P(nm, t)
-            local h = f.C.GetModuleHandleA("kernel32.dll"); if h == nil then return nil end
-            local p = f.C.GetProcAddress(h, nm); return (p ~= nil) and f.cast(t, p) or nil
-        end
-        FFF = P("FindFirstFileA",       "void*(*)(const char*, void*)")
-        FNF = P("FindNextFileA",        "int(*)(void*, void*)")
-        FCL = P("FindClose",            "int(*)(void*)")
-        GCD = P("GetCurrentDirectoryA", "uint32_t(*)(uint32_t, char*)")
-        WINEXEC = P("WinExec",          "uint32_t(*)(const char*, uint32_t)")
-        pcall(function()
-            if GCD then
-                local eb = f.new("char[?]", 1024)
-                local cwd = f.string(eb, GCD(1024, eb))
-                soundDir = cwd:gsub("[\\/]bin[\\/]win64.*$", "\\csgo\\sounds")
-            end
-        end)
-    end
-    HS.openSoundDir = function()
-        if WINEXEC then pcall(function() WINEXEC('explorer.exe "' .. soundDir .. '"', 5) end) end
-    end
-
-    local function scanSounds()
-        local names = {}
-        pcall(function()
-            if not (f and FFF and FNF and FCL) then return end
-            local INVALID = f.cast("void*", f.cast("intptr_t", -1))
-            local fd = f.new("AWSNDFD")
-            local h = FFF(soundDir .. "\\*.vsnd_c", fd)
-            if h ~= INVALID then
-                repeat
-                    local nm = f.string(fd.nm)
-                    if nm:sub(-7):lower() == ".vsnd_c" then names[#names + 1] = nm:sub(1, #nm - 7) end
-                until FNF(h, fd) == 0
-                FCL(h)
-            end
-        end)
-        table.sort(names)
-        local paths = {}
-        for i = 1, #names do paths[i] = names[i] end
-        if #names == 0 then names[1] = "[ put .vsnd_c in csgo\\sounds ]" end
-        return names, paths
-    end
-    HS.scan = scanSounds
-    SND_NAMES, SND_PATHS = scanSounds()
-
-    local function resolve(cmb)
-        return tostring(SND_PATHS[cmb:Get()] or "")
-    end
-
-    local function play(path, vol)
-        if path == "" then return end
-        vol = (tonumber(vol) or 100) / 100
-        if vol <= 0 then return end
-        pcall(function() client.SetConVar("snd_toolvolume", vol, true) end)
-        pcall(function() client.Command("play sounds\\" .. path, true) end)
-    end
-
-    function HS.playHit()  play(resolve(hsCmb), hsVol:Get()) end
-    function HS.playKill() play(resolve(ksCmb), ksVol:Get()) end
-
-    local bit_ = rawget(_G, "bit")
-    local DLL  = "client.dll"
-    local off  = {}
-    off.dwEntityList            = C.offsets and C.offsets.dwEntityList
-    off.dwLocalPlayerController = C.offsets and C.offsets.dwLocalPlayerController
-    pcall(function()
-        local j = http.Get("https://raw.githubusercontent.com/a2x/cs2-dumper/main/output/client_dll.json")
-        off.m_iszPlayerName = j and tonumber(j:match('"m_iszPlayerName"%s*:%s*(%d+)')) or nil
-        off.m_iPing         = j and tonumber(j:match('"m_iPing"%s*:%s*(%d+)')) or nil
-    end) 
-
-    local band, rshift = (bit_ or {}).band, (bit_ or {}).rshift
-    local function slot(elist, idx)
-        if not valid(elist) then return nil end
-        local chunk = r_ptr(elist + 8 * rshift(idx, 9) + 16); if not valid(chunk) then return nil end
-        local e = r_ptr(chunk + 112 * band(idx, 0x1FF))
-        if valid(e) and valid(r_ptr(e)) then return e end
-        return nil
-    end
-
-    local function nameOf(elist, plyslot)
-        if not (off.m_iszPlayerName and type(ffi) == "table") then return nil end
-        local c = slot(elist, (plyslot or -1) + 1)
-        if not valid(c) then return nil end
-        local s
-        pcall(function() s = ffi.string(ffi.cast("const char*", c + off.m_iszPlayerName)) end)
-        if s and #s > 0 and #s < 64 then return s end
-        return nil
-    end
-
-    local function localCtrlList()
-        if not (type(ffi) == "table" and band and off.dwLocalPlayerController and off.dwEntityList) then return nil, nil end
-        local base = mem.GetModuleBase(DLL); if not base then return nil, nil end
-        local lctrl = r_ptr(base + off.dwLocalPlayerController)
-        local elist = r_ptr(base + off.dwEntityList)
-        if valid(lctrl) and valid(elist) then return lctrl, elist end
-        return nil, nil
-    end
-
-    function HS.localInfo()
-        local lctrl = localCtrlList()
-        if not valid(lctrl) then return nil, nil end
-        local nick, ping
-        if off.m_iszPlayerName then
-            pcall(function()
-                local s = ffi.string(ffi.cast("const char*", lctrl + off.m_iszPlayerName))
-                if s and #s > 0 and #s < 64 then nick = s end
-            end)
-        end
-        if off.m_iPing then
-            pcall(function()
-                local p = ffi.cast("int32_t*", lctrl + off.m_iPing)[0]
-                if p and p >= 0 and p < 10000 then ping = p end
-            end)
-        end
-        return nick, ping
-    end
-
-    function HS.nameBySlot(s)
-        local _, elist = localCtrlList()
-        if not valid(elist) then return nil end
-        return nameOf(elist, s)
-    end
-
-    local MISS_DELAY = 16
-    local frameId = 0
-    local pend = {}
-
-    local HG = { [0] = "body", [1] = "head", [2] = "chest", [3] = "stomach",
-                 [4] = "l.arm", [5] = "r.arm", [6] = "l.leg", [7] = "r.leg", [10] = "gear" }
-
-    local function evHurt(d)
-        local dmg = d.dmg_health or 0
-        if dmg <= 0 then return end
-        local lctrl, elist = localCtrlList()
-        local iAttack, iHurt = true, false
-        if lctrl then
-            iAttack = slot(elist, (d.attacker or -1) + 1) == lctrl
-            iHurt   = slot(elist, (d.userid   or -1) + 1) == lctrl
-        end
-        if d.userid == d.attacker then iAttack = false end
-
-        local hg = HG[d.hitgroup or 0] or "body"
-        if iAttack then
-            for i = 1, #pend do if not pend[i].hit then pend[i].hit = true; break end end
-            local dead = (d.health or 1) <= 0
-            local who  = nameOf(elist, d.userid) or "player"
-            if dead then
-                if ksOn:Get() then HS.playKill() end
-                if hlOn:Get() and hlKill:Get() then
-                    M:Hitlog("kill", dmg, "killed " .. who .. " in " .. hg .. " for " .. dmg .. "hp")
-                end
-            else
-                if hsOn:Get() then HS.playHit() end
-                if hlOn:Get() and hlHit:Get() then
-                    M:Hitlog("hit", dmg, "hit " .. who .. " in " .. hg .. " for " .. dmg .. "hp")
-                end
-            end
-        elseif iHurt then
-            local who = nameOf(elist, d.attacker) or "player"
-            if hlOn:Get() and hlHurt:Get() then
-                M:Hitlog("hurt", dmg, "hurt by " .. who .. " in " .. hg .. " for " .. dmg .. "hp")
-            end
-        end
-    end
-
-    local function evFire(d)
-        if not (hlOn:Get() and hlMiss:Get()) then return end
-        local adef = C.activeDef()
-        if adef and C.isKnife(adef) then return end
-        local lctrl, elist = localCtrlList()
-        if not lctrl then return end
-        if slot(elist, (d.userid or -1) + 1) ~= lctrl then return end
-        pend[#pend + 1] = { f = frameId, hit = false }
-    end
-
-    function HS.onEvent(ev)
-        local name
-        pcall(function() name = ev:GetName() end)
-        if name == "player_hurt" then
-            local d = {}
-            pcall(function()
-                d.attacker   = ev:GetInt("attacker")
-                d.userid     = ev:GetInt("userid")
-                d.health     = ev:GetInt("health")
-                d.dmg_health = ev:GetInt("dmg_health")
-                d.hitgroup   = ev:GetInt("hitgroup")
-            end)
-            evHurt(d)
-        elseif name == "weapon_fire" then
-            local d = {}
-            pcall(function() d.userid = ev:GetInt("userid") end)
-            evFire(d)
-        end
-    end
-
-    function HS.missTick()
-        frameId = frameId + 1
-        if #pend == 0 then return end
-        local keep = {}
-        for i = 1, #pend do
-            local s = pend[i]
-            if frameId - s.f >= MISS_DELAY then
-                if not s.hit and hlOn:Get() and hlMiss:Get() then M:Hitlog("miss", nil, "missed shot") end
-            else
-                keep[#keep + 1] = s
-            end
-        end
-        pend = keep
-    end
-
-    local lastHs = nil
-    function HS.sync()
-        local s = table.concat({ hsOn:Get() and 1 or 0, hsCmb:Get(), hsVol:Get(),
-                                 ksOn:Get() and 1 or 0, ksCmb:Get(), ksVol:Get() }, ":")
-        if s == lastHs then return end
-        lastHs = s
-        C.setOpt("hs_on2", hsOn:Get()); C.setOpt("hs_snd2", hsCmb:Get()); C.setOpt("hs_vol2", hsVol:Get())
-        C.setOpt("ks_on2", ksOn:Get()); C.setOpt("ks_snd2", ksCmb:Get()); C.setOpt("ks_vol2", ksVol:Get())
-    end
-end
-
-local RG = { ok = false, ids = {}, names = {}, allow = {}, add = 200, enabled = false, installed = false }
-do
-    local f = ffi
-    local CITY = {
-        ams = "Amsterdam", atl = "Atlanta", bom = "Mumbai", maa = "Chennai",
-        can = "Guangzhou", sha = "Shanghai", tyo = "Tokyo", hkg = "Hong Kong",
-        seo = "Seoul", sgp = "Singapore", syd = "Sydney", dxb = "Dubai",
-        fra = "Frankfurt", lhr = "London", lux = "Luxembourg", par = "Paris",
-        mad = "Madrid", sto = "Stockholm", vie = "Vienna", waw = "Warsaw",
-        hel = "Helsinki", iad = "Washington", ord = "Chicago", lax = "Los Angeles",
-        sea = "Seattle", dfw = "Dallas", okc = "Oklahoma", gru = "Sao Paulo",
-        sao = "Sao Paulo", scl = "Santiago", lim = "Lima", bog = "Bogota",
-        eat = "Moscow", sto2 = "Stockholm", jhb = "Johannesburg", pwj = "Tianjin",
-        pwg = "Guangzhou", pwz = "Chengdu", tsn = "Tianjin", cpt = "Cape Town",
+local function lerpc(a, b, t)
+    t = clamp(t, 0, 1)
+    return {
+        a[1] + (b[1] - a[1]) * t,
+        a[2] + (b[2] - a[2]) * t,
+        a[3] + (b[3] - a[3]) * t,
+        (a[4] or 255) + ((b[4] or 255) - (a[4] or 255)) * t,
     }
-
-    local function decode(id)
-        local code = ""
-        for sh = 24, 0, -8 do
-            local c = floor(id / 2 ^ sh) % 256
-            if c >= 32 and c < 127 then code = code .. string.char(c) end
-        end
-        return (code:gsub("%s", ""))
-    end
-
-    function RG.label(id)
-        local code = decode(id)
-        local city = CITY[code:lower()]
-        if city then return city .. " (" .. code .. ")" end
-        return code ~= "" and code or ("#" .. id)
-    end
-
-    if type(f) == "table" then
-        local IDX_COUNT, IDX_LIST = 10, 11
-        local TARGETS = {
-            { rva = 0x13F050, steal = 17 },             -- GetPingToDataCenter (vtable idx 8)
-            { rva = 0x13EBB0, steal = 15, call = 10 },  -- GetDirectPingToPOP  (vtable idx 9)
-        }
-
-        local DLL  = "steamnetworkingsockets.dll"
-        local ACCS = { "SteamNetworkingUtils_LibV4", "SteamNetworkingUtils_LibV3", "SteamNetworkingUtils_LibV2" }
-
-        local hmod = f.C.GetModuleHandleA(DLL)
-        local base = hmod ~= nil and tonumber(f.cast("uintptr_t", hmod)) or nil
-
-        local utils, vtbl, getCount, getList
-        if hmod ~= nil then
-            local acc
-            for _, nm in ipairs(ACCS) do
-                local p = f.C.GetProcAddress(hmod, nm)
-                if p ~= nil then acc = p; break end
-            end
-            if acc ~= nil then
-                local ok2, u = pcall(function() return f.cast("void*(*)(void)", acc)() end)
-                if ok2 and u ~= nil then utils = u end
-            end
-            if utils ~= nil then
-                vtbl = f.cast("void***", utils)[0]
-                if vtbl ~= nil then
-                    getCount = f.cast("int(*)(void*)", vtbl[IDX_COUNT])
-                    getList  = f.cast("int(*)(void*, uint32_t*, int)", vtbl[IDX_LIST])
-                end
-            end
-        end
-
-        local w_u8  = function(a, v) f.cast("uint8_t*",  a)[0] = v end
-        local w_i32 = function(a, v) f.cast("int32_t*",  a)[0] = v end
-        local le64  = function(a, v) f.cast("uint64_t*", a)[0] = f.cast("uint64_t", v) end
-
-        local function alloc_near(target)
-            local gran = 0x10000
-            local b = target - (target % gran)
-            for i = 1, 0x8000 do
-                local lo = b - i * gran
-                if lo > 0x10000 then
-                    local p = f.C.VirtualAlloc(f.cast("void*", lo), 64, 0x3000, 0x40)
-                    if p ~= nil then return p end
-                end
-                local p2 = f.C.VirtualAlloc(f.cast("void*", b + i * gran), 64, 0x3000, 0x40)
-                if p2 ~= nil then return p2 end
-            end
-            return nil
-        end
-
-        local hooks, keeps = {}, {}
-
-        local function hookFunc(rva, steal, callOff)
-            local T  = base + rva
-            local b0 = f.cast("uint8_t*", T)
-            local p  = alloc_near(T); if p == nil then return nil end
-            local TR = tonumber(f.cast("uintptr_t", p))
-
-            local saved = {}
-            for i = 0, steal - 1 do saved[i] = b0[i]; w_u8(TR + i, b0[i]) end
-
-            if callOff then
-                local relOrig    = f.cast("int32_t*", T + callOff + 1)[0]
-                local callTarget = (T + callOff + 5) + relOrig
-                local newRel     = callTarget - (TR + callOff + 5)
-                if newRel < -2147483648 or newRel > 2147483647 then return nil end
-                w_i32(TR + callOff + 1, newRel)
-            end
-
-            w_u8(TR + steal, 0xFF); w_u8(TR + steal + 1, 0x25); w_i32(TR + steal + 2, 0)
-            le64(TR + steal + 6, T + steal)
-
-            local orig = f.cast("int(*)(void*, uint32_t, uint32_t*)", f.cast("void*", TR))
-            local cb = f.cast("int(*)(void*, uint32_t, uint32_t*)", function(self, popid, via)
-                local r = orig(self, popid, via)
-                if RG.enabled and r >= 0 and next(RG.allow) ~= nil then
-                    if RG.allow[tonumber(popid)] then
-                        if RG.minimize then return 1 end
-                    else
-                        return r + RG.add
-                    end
-                end
-                return r
-            end)
-            keeps[#keeps + 1] = cb
-
-            local old = f.new("uint32_t[1]")
-            if f.C.VirtualProtect(f.cast("void*", T), steal, 0x40, old) == 0 then return nil end
-            w_u8(T, 0xFF); w_u8(T + 1, 0x25); w_i32(T + 2, 0); le64(T + 6, tonumber(f.cast("uintptr_t", cb)))
-            for i = 14, steal - 1 do w_u8(T + i, 0x90) end
-            f.C.VirtualProtect(f.cast("void*", T), steal, old[0], old)
-            pcall(function() f.C.FlushInstructionCache(f.C.GetCurrentProcess(), f.cast("void*", T), steal) end)
-
-            hooks[#hooks + 1] = { T = T, saved = saved, steal = steal }
-            return orig
-        end
-
-        local function install()
-            if not base then return false end
-            local any = false
-            for _, t in ipairs(TARGETS) do
-                local o = nil
-                pcall(function() o = hookFunc(t.rva, t.steal, t.call) end)
-                if o then
-                    any = true
-                    if not RG.ping then RG.ping = o end
-                end
-            end
-            RG.installed = any
-            return any
-        end
-
-        function RG.uninstall()
-            for _, h in ipairs(hooks) do
-                pcall(function()
-                    local old = f.new("uint32_t[1]")
-                    f.C.VirtualProtect(f.cast("void*", h.T), h.steal, 0x40, old)
-                    for i = 0, h.steal - 1 do w_u8(h.T + i, h.saved[i]) end
-                    f.C.VirtualProtect(f.cast("void*", h.T), h.steal, old[0], old)
-                    f.C.FlushInstructionCache(f.C.GetCurrentProcess(), f.cast("void*", h.T), h.steal)
-                end)
-            end
-            RG.installed = false
-        end
-
-        local function pingOf(id)
-            if not RG.ping then return nil end
-            local r
-            pcall(function()
-                local via = f.new("uint32_t[1]")
-                r = RG.ping(nil, id, via)
-            end)
-            if r and r >= 0 and r < 100000 then return r end
-            return nil
-        end
-
-        local function enumerate()
-            if utils == nil or not getCount or not getList then return end
-            local n = getCount(utils)
-            if n <= 0 then return end
-            if n > 256 then n = 256 end
-            local buf = f.new("uint32_t[?]", n)
-            local got = getList(utils, buf, n)
-            if got < 0 then return end
-            if got > n then got = n end
-            local all, hasPing = {}, {}
-            for i = 0, got - 1 do
-                local id    = tonumber(buf[i])
-                local known = CITY[decode(id):lower()] ~= nil
-                local ping  = pingOf(id)
-                local nm    = RG.label(id) .. (ping and ("  " .. ping .. "ms") or "")
-                local e = { id = id, name = nm, known = known, ping = ping }
-                all[#all + 1] = e
-                if ping ~= nil and ping <= 250 then hasPing[#hasPing + 1] = e end
-            end
-            local use = (#hasPing > 0) and hasPing or all
-            table.sort(use, function(a, b)
-                if (a.ping ~= nil) ~= (b.ping ~= nil) then return a.ping ~= nil end
-                if a.ping and b.ping and a.ping ~= b.ping then return a.ping < b.ping end
-                if a.known ~= b.known then return a.known end
-                return a.name < b.name
-            end)
-            local ids, names = {}, {}
-            for _, e in ipairs(use) do ids[#ids + 1] = e.id; names[#names + 1] = e.name end
-            if #ids > 0 then RG.ids = ids; RG.names = names end
-        end
-        RG.enumerate = enumerate
-
-        local okI = false
-        pcall(function() okI = install() end)
-        if utils ~= nil and vtbl ~= nil then pcall(enumerate) end
-        RG.ok = okI
-        if okI then print("[femboytap] region: hooked " .. #hooks .. " fns (" .. #RG.ids .. " pops)")
-        else            print("[femboytap] region: hook failed") end
-    end
-
-    if #RG.names == 0 then RG.names = { "[ join a server, then Refresh ]" } end
-end
-pcall(function() callbacks.Register("Unload", function() pcall(RG.uninstall) end) end)
-
-local NC = { ok = false, installed = false, enabled = false }
-do
-    local f = ffi
-    local DLL  = "engine2.dll"
-    local SIG_SETINFO = "40 55 41 57 48 8D 6C 24 ?? 48 81 EC ?? ?? ?? ?? 45 33 FF"
-    local STEAL = 16
-    local NAME_OFF, KEY_OFF, VAL_OFF = 0x440, 0x8, 0x10
-
-    local T, orig, keepCb
-
-    local function w_u8(a, v)  f.cast("uint8_t*",  a)[0] = v end
-    local function w_i32(a, v) f.cast("int32_t*",  a)[0] = v end
-    local function le64(a, v)  f.cast("uint64_t*", a)[0] = f.cast("uint64_t", v) end
-
-    local function alloc_near(target)
-        local gran = 0x10000
-        local b = target - (target % gran)
-        for i = 1, 0x8000 do
-            local lo = b - i * gran
-            if lo > 0x10000 then
-                local p = f.C.VirtualAlloc(f.cast("void*", lo), 64, 0x3000, 0x40)
-                if p ~= nil then return p end
-            end
-            local p2 = f.C.VirtualAlloc(f.cast("void*", b + i * gran), 64, 0x3000, 0x40)
-            if p2 ~= nil then return p2 end
-        end
-        return nil
-    end
-
-    function NC.setName(s)
-        s = tostring(s or "")
-        if #s == 0 then NC._buf = nil; return end
-        NC._buf = f.new("char[?]", #s + 1, s)
-    end
-
-    local function onSetInfo(rcx, a2)
-        if NC.enabled and NC._buf ~= nil and a2 ~= nil then
-            pcall(function()
-                local a2n = tonumber(f.cast("uintptr_t", a2))
-                if a2n and a2n >= 0x1000 then
-                    local arg_list = r_ptr(a2n + NAME_OFF)
-                    if arg_list and arg_list >= 0x1000 then
-                        local key = r_ptr(arg_list + KEY_OFF)
-                        if valid(key) then
-                            local ks = f.string(f.cast("const char*", key))
-                            if ks:lower() == "name" then
-                                f.cast("const char**", arg_list + VAL_OFF)[0] = f.cast("const char*", NC._buf)
-                            end
-                        end
-                    end
-                end
-            end)
-        end
-        return orig(rcx, a2)
-    end
-
-    local function install()
-        if type(f) ~= "table" then print("[femboytap] namechanger: no ffi"); return false end
-        local a = mem.FindPattern(DLL, SIG_SETINFO)
-        if not a or a == 0 then print("[femboytap] namechanger: sig not found"); return false end
-        T = a
-        local b0 = f.cast("uint8_t*", T)
-        local p = alloc_near(T); if p == nil then print("[femboytap] namechanger: alloc failed"); return false end
-        local TR = tonumber(f.cast("uintptr_t", p))
-
-        local saved = {}
-        for i = 0, STEAL - 1 do saved[i] = b0[i]; w_u8(TR + i, b0[i]) end
-        w_u8(TR + STEAL, 0xFF); w_u8(TR + STEAL + 1, 0x25); w_i32(TR + STEAL + 2, 0)
-        le64(TR + STEAL + 6, T + STEAL)
-
-        orig = f.cast("char (*)(void*, void*)", f.cast("void*", TR))
-        keepCb = f.cast("char (*)(void*, void*)", onSetInfo)
-
-        local old = f.new("uint32_t[1]")
-        if f.C.VirtualProtect(f.cast("void*", T), STEAL, 0x40, old) == 0 then
-            print("[femboytap] namechanger: protect failed"); return false
-        end
-        w_u8(T, 0xFF); w_u8(T + 1, 0x25); w_i32(T + 2, 0)
-        le64(T + 6, tonumber(f.cast("uintptr_t", keepCb)))
-        for i = 14, STEAL - 1 do w_u8(T + i, 0x90) end
-        f.C.VirtualProtect(f.cast("void*", T), STEAL, old[0], old)
-        pcall(function() f.C.FlushInstructionCache(f.C.GetCurrentProcess(), f.cast("void*", T), STEAL) end)
-
-        NC._saved = saved
-        NC.installed = true
-        return true
-    end
-
-    function NC.uninstall()
-        if not (NC.installed and T and NC._saved) then return end
-        pcall(function()
-            local old = f.new("uint32_t[1]")
-            f.C.VirtualProtect(f.cast("void*", T), STEAL, 0x40, old)
-            for i = 0, STEAL - 1 do w_u8(T + i, NC._saved[i]) end
-            f.C.VirtualProtect(f.cast("void*", T), STEAL, old[0], old)
-            f.C.FlushInstructionCache(f.C.GetCurrentProcess(), f.cast("void*", T), STEAL)
-        end)
-        NC.installed = false
-    end
-
-    local CVAR_RVA, RESOLVE_RVA = 0x685698, 0x3FC080
-    local VT_FIND, FLAGS_OFF    = 0x58, 0x30
-    local F_USERINFO, F_PROTECTED = 0x200, 0x2
-    local bit_ = rawget(_G, "bit")
-
-    function NC.fixFlags()
-        if type(f) ~= "table" or not bit_ then return false end
-        if NC._flags then
-            local p = f.cast("uint32_t*", NC._flags)
-            p[0] = bit_.band(bit_.bor(p[0], F_USERINFO), bit_.bnot(F_PROTECTED))
-            return true
-        end
-        local base = mem.GetModuleBase(DLL); if not base then return false end
-        local cvar = r_ptr(base + CVAR_RVA);  if not valid(cvar) then return false end
-        local vt   = r_ptr(cvar);             if not valid(vt)   then return false end
-        local findAddr = r_ptr(vt + VT_FIND); if not valid(findAddr) then return false end
-        local findfn  = f.cast("uint64_t (*)(void*, void*, const char*, int)", findAddr)
-        local resolve = f.cast("void* (*)(void*, uint32_t, int16_t)", base + RESOLVE_RVA)
-        local nameC   = f.new("char[5]", "name")
-        local outbuf  = f.new("uint8_t[64]")
-        local res     = f.new("uint64_t[4]")
-        local done = false
-        NC._diag = { base = base, cvar = cvar, vt = vt, find = findAddr }
-        pcall(function()
-            local ref = tonumber(findfn(f.cast("void*", cvar), outbuf, nameC, 1))
-            NC._diag.ref = ref
-            if not ref or ref < 0x10000 then return end
-            local handle = f.cast("uint32_t*", ref)[0]
-            NC._diag.handle = tonumber(handle)
-            resolve(res, handle, -1)
-            local obj = tonumber(res[1])
-            NC._diag.obj = obj
-            if not valid(obj) then return end
-            NC._flags = obj + FLAGS_OFF
-            local p = f.cast("uint32_t*", NC._flags)
-            NC._diag.old = tonumber(p[0])
-            p[0] = bit_.band(bit_.bor(p[0], F_USERINFO), bit_.bnot(F_PROTECTED))
-            NC._diag.new = tonumber(p[0])
-            done = true
-        end)
-        return done
-    end
-
-    function NC.dump()
-        local d = NC._diag or {}
-        local function hx(v) return v and string.format("%X", v) or "nil" end
-        print("[femboytap] NC: base=" .. hx(d.base) .. " cvar=" .. hx(d.cvar) ..
-              " vt=" .. hx(d.vt) .. " find=" .. hx(d.find) .. " ref=" .. hx(d.ref) ..
-              " handle=" .. tostring(d.handle) .. " obj=" .. hx(d.obj) ..
-              " flags " .. hx(d.old) .. "->" .. hx(d.new))
-    end
-
-    function NC.steamName()
-        if type(f) ~= "table" then return nil end
-        if NC._steam then return NC._steam end
-        local h = f.C.GetModuleHandleA("steam_api64.dll"); if h == nil then return nil end
-        local getName = f.C.GetProcAddress(h, "SteamAPI_ISteamFriends_GetPersonaName")
-        if getName == nil then return nil end
-        local accFn
-        for _, v in ipairs({ "SteamAPI_SteamFriends_v017", "SteamAPI_SteamFriends_v018",
-                             "SteamAPI_SteamFriends_v019", "SteamAPI_SteamFriends_v016",
-                             "SteamAPI_SteamFriends_v020" }) do
-            local p = f.C.GetProcAddress(h, v)
-            if p ~= nil then accFn = p; break end
-        end
-        if accFn == nil then return nil end
-        local res
-        pcall(function()
-            local iface = f.cast("void* (*)(void)", accFn)()
-            if iface == nil then return end
-            local s = f.cast("const char* (*)(void*)", getName)(iface)
-            if s ~= nil then
-                local str = f.string(s)
-                if #str > 0 and #str < 64 then res = str end
-            end
-        end)
-        if res then NC._steam = res end
-        return res
-    end
-
-    function NC.origName()
-        return NC.steamName() or NC._captured
-    end
-
-    local okI = false
-    pcall(function() okI = install() end)
-    NC.ok = okI
-    if okI then print("[femboytap] namechanger: hooked SetInfo @ " .. string.format("%X", T))
-    else        print("[femboytap] namechanger: install failed") end
-end
-pcall(function() callbacks.Register("Unload", function() pcall(NC.uninstall) end) end)
-
-local CHAT = { ok = false }
-do
-    local f = ffi
-    local SIG_CHAT = "4C 89 4C 24 20 53 56 B8 38 10 00 00 E8 ?? ?? ?? ?? 48 2B E0 48 8B 0D ?? ?? ?? ?? 41 8B D8 48 8B F2"
-    local fn, flags
-    if type(f) == "table" then
-        local a = mem.FindPattern("client.dll", SIG_CHAT)
-        if a and a ~= 0 then
-            fn    = f.cast("void(*)(void*, void*, uint32_t, const char*, const char*)", f.cast("void*", a))
-            flags = f.new("int[1]", 0x0100)
-            CHAT.ok = true
-            print("[femboytap] chat: hooked print @ " .. string.format("%X", a))
-        else
-            print("[femboytap] chat: print sig not found")
-        end
-    end
-    function CHAT.print(text)
-        if not (CHAT.ok and fn) then return false end
-        return pcall(function() fn(nil, flags, 0, "%s", tostring(text)) end)
-    end
 end
 
-local VR = { q = {} }
-do
-    local G, R, W, P = string.char(4), string.char(2), string.char(1), string.char(14)
-    local function pfx() return "[" .. P .. "femboytap" .. W .. "] " end
+local ffi = ffi
+local FONT_URLS = {
+    { file = "femboytap_Oxanium.ttf",      url = "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/oxanium/Oxanium%5Bwght%5D.ttf" },
+    { file = "femboytap_Orbitron.ttf",     url = "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/orbitron/Orbitron%5Bwght%5D.ttf" },
+    { file = "femboytap_SpaceGrotesk.ttf", url = "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/spacegrotesk/SpaceGrotesk%5Bwght%5D.ttf" },
+}
 
-    local function startMsg(initiator, target)
-        return pfx() .. initiator .. " started a vote to kick " .. target,
-               initiator .. " wants to kick " .. target
-    end
-    local function castMsg(name, yes)
-        local yn = yes and (G .. "yes" .. W) or (R .. "no" .. W)
-        return pfx() .. name .. " voted " .. yn,
-               name .. " voted " .. (yes and "yes" or "no")
-    end
-
-    local function push(chat, note, kind) VR.q[#VR.q + 1] = { chat = chat, note = note, kind = kind } end
-
-    local function pname(slot)
-        if not slot or slot < 0 then return "player" end
-        local n = HS.nameBySlot(slot)
-        if type(n) == "string" and #n > 0 and #n < 64 then return n end
-        return "player"
-    end
-
-    function VR.flush()
-        local total = #VR.q; if total == 0 then return end
-        local q = VR.q; VR.q = {}
-        local mode = (VR._mode and VR._mode()) or 3
-        for i = 1, total do
-            local it = q[i]
-            if mode == 1 or mode == 3 then pcall(function() CHAT.print(it.chat) end) end
-            if mode == 2 or mode == 3 then pcall(function() M:Notify(it.note, it.kind) end) end
+local FONT, FONT_B, FONT_LOGO
+local function initFonts()
+    local mk = function(list, size, weight)
+        for _, name in ipairs(list) do
+            local f
+            pcall(function() f = draw.CreateFont(name, size, weight) end)
+            if not f then pcall(function() f = draw.AddFont(name, size, weight) end) end
+            if f then return f, name end
         end
     end
-
-    function VR.test()
-        local a, b = startMsg("initiator", "target"); push(a, b, "info")
-        local c, d = castMsg("player", true);  push(c, d, "success")
-        local e, g = castMsg("player", false); push(e, g, "error")
-    end
-
-    function VR.onEvent(ev)
-        if not (VR._on and VR._on()) then return end
-        local name
-        pcall(function() name = ev:GetName() end)
-        if name == "vote_cast" then
-            local opt
-            pcall(function() opt = ev:GetInt("vote_option") end)
-            if opt == nil or opt < 0 then return end
-            local voter
-            pcall(function() voter = ev:GetInt("userid") end)
-            local yes = (opt == 0)
-            local c, n = castMsg(pname(voter), yes)
-            push(c, n, yes and "success" or "error")
-        elseif name == "vote_started" or name == "vote_begin" then
-            local initiator
-            pcall(function() initiator = ev:GetInt("entityid") end)
-            if not initiator or initiator <= 0 then pcall(function() initiator = ev:GetInt("userid") end) end
-            local tid
-            pcall(function()
-                local disp = ev:GetString("disp_str")
-                if type(disp) == "string" then
-                    local m = disp:match(":(%d+):")
-                    if m then tid = tonumber(m) end
-                end
-            end)
-            local c, n = startMsg(pname(initiator), tid and pname(tid) or "player")
-            push(c, n, "info")
-        end
-    end
+    local picked
+    FONT,      picked = mk(T.font, T.font_size, 400)
+    FONT_B            = mk(T.font, T.font_size, 600)
+    FONT_LOGO         = mk(T.font_logo, T.font_size + 2, 700) or FONT_B
+    print("[femboytap] font: " .. tostring(picked))
 end
-pcall(function()
-    for _, e in ipairs({ "player_hurt", "weapon_fire", "vote_started", "vote_begin", "vote_cast" }) do
-        pcall(function() client.AllowListener(e) end)
-    end
-    callbacks.Register("FireGameEvent", "FemboyTap_Events", function(ev)
-        pcall(HS.onEvent, ev)
-        pcall(VR.onEvent, ev)
+
+local function fontInitCoro()
+    coroutine.yield()
+
+    pcall(function()
+        ffi.cdef[[
+            unsigned long GetCurrentDirectoryA(unsigned long, char*);
+            unsigned long GetFileAttributesA(const char*);
+            int CreateDirectoryA(const char*, void*);
+            int AddFontResourceExA(const char*, unsigned long, void*);
+            long URLDownloadToFileA(void*, const char*, const char*, unsigned long, void*);
+        ]]
     end)
-end)
+    local gdi32, urlmon
+    pcall(function() gdi32  = ffi.load("gdi32") end)
+    pcall(function() urlmon = ffi.load("urlmon") end)
 
-local tab = M:Tab("Skins")
+    local dir = "."
+    pcall(function()
+        local buf = ffi.new("char[600]")
+        local n = ffi.C.GetCurrentDirectoryA(600, buf)
+        if n and n > 0 then dir = ffi.string(buf, n) end
+    end)
+    dir = dir .. "\\femboytap_lua"
+    pcall(function() ffi.C.CreateDirectoryA(dir, nil) end)
+    M._dir = dir
+    coroutine.yield()
 
-tab:Row()
-weaponLb = tab:Section("Weapons"):Listbox("", C.names, "fill", 1)
-
-tab:Col()
-local sSec = tab:Section("Skins")
-skinLb = sSec:Listbox("", { "[ select a weapon ]" }, "fill", 1)
-skinWd = sSec.ws[#sSec.ws]
-
-tab:Col()
-local setSec = tab:Section("Settings")
-sWear  = setSec:Slider("Wear / Float", 0.0001, 0.0, 1.0, 0.001, "%.3f")
-sSeed  = setSec:Slider("Seed", 0, 0, 1000, 1)
-cbAuto = setSec:Checkbox("Auto select weapon", false)
-
-local actSec = tab:Section("Actions")
-actSec:Button("Remove",    function() C.remove(item()) end)
-actSec:Button("Reset All", function() C.resetAll() end)
-
-local cfgSec = tab:Section("Config")
-cfgSec:Button("Reset config", function() C.clearConfig() end)
-
-local vtab = M:Tab("Visuals")
-
-local submodels = vtab:Sub("Models")
-submodels:Row()
-local vSec = submodels:Section("List")
-local mNames
-mNames, modelPaths = C.modelList()
-modelLb = vSec:Listbox("", mNames, "fill", 1)
-modelWd = vSec.ws[#vSec.ws]
-submodels:Col()
-local vSsec = submodels:Section("Settings")
-vSsec:Button("Refresh models", function()
-    local cur = C.getLocalModel()
-    local n, p = C.refreshModels()
-    modelPaths     = p
-    modelWd.items  = n
-    modelWd.value  = 1
-    modelWd.scroll = 0
-    if cur then
-        for i = 2, #p do if p[i] == cur then modelWd.value = i; break end end
-    end
-    lastModelSel = modelWd.value
-end)
-
-local sublocal = vtab:Sub("Local")
-sublocal:Row()
-local localSection = sublocal:Section("Local player")
-cbVm = localSection:Checkbox("Viewmodel override", false)
-vmX  = localSection:Slider("Offset X", 0, -30, 30, 0.1, "%.1f")
-vmY  = localSection:Slider("Offset Y", 0, -30, 30, 0.1, "%.1f")
-vmZ  = localSection:Slider("Offset Z", 0, -30, 30, 0.1, "%.1f")
-
-local subsound = vtab:Sub("Sounds")
-subsound:Row()
-local hsSec = subsound:Section("Hit sound")
-hsOn    = hsSec:Checkbox("Enabled", true)
-hsCmb   = hsSec:Combo("Sound", SND_NAMES, 1)
-hsCmbWd = hsSec.ws[#hsSec.ws]
-hsVol   = hsSec:Slider("Volume", 100, 0, 100, 1, "%.0f")
-
-subsound:Col()
-local ksSec = subsound:Section("Kill sound")
-ksOn    = ksSec:Checkbox("Enabled", false)
-ksCmb   = ksSec:Combo("Sound", SND_NAMES, 1)
-ksCmbWd = ksSec.ws[#ksSec.ws]
-ksVol   = ksSec:Slider("Volume", 100, 0, 100, 1, "%.0f")
-
-subsound:Col()
-local tSec = subsound:Section("Preview")
-tSec:Button("Play hit",  function() HS.playHit() end)
-tSec:Button("Play kill", function() HS.playKill() end)
-tSec:Button("Rescan", function()
-    local n, p = HS.scan()
-    SND_PATHS = p
-    hsCmbWd.options = n; hsCmbWd.value = 1
-    ksCmbWd.options = n; ksCmbWd.value = 1
-end)
-tSec:Button("Open folder", function() HS.openSoundDir() end)
-
-local subhl = vtab:Sub("Hitlogs")
-subhl:Row()
-local hlSet = subhl:Section("Hitlog")
-hlOn = hlSet:Checkbox("Enabled", true)
-hlSet:Button("Reset position", function() M:HitlogResetPos() end)
-
-subhl:Col()
-local hlTypes = subhl:Section("Types")
-hlHit  = hlTypes:Checkbox("Hit",  true)
-hlKill = hlTypes:Checkbox("Kill", true)
-hlHurt = hlTypes:Checkbox("Hurt", true)
-hlMiss = hlTypes:Checkbox("Miss", false)
-hlTypes:Button("Test", function()
-    local d = math.random(8, 60)
-    M:Hitlog("hit",  d, "hit player in head for " .. d .. "hp")
-    M:Hitlog("kill", d, "killed player in head for " .. d .. "hp")
-    M:Hitlog("miss", nil, "missed shot")
-end)
-
-subhl:Col()
-local hlCol = subhl:Section("Colors")
-local cMiss = hlCol:ColorPicker("Miss", { 235, 90, 90 })
-local cHit  = hlCol:ColorPicker("Hit",  { 139, 124, 246 })
-local cHurt = hlCol:ColorPicker("Hurt", { 245, 170, 70 })
-local cKill = hlCol:ColorPicker("Kill", { 80, 200, 120 })
-
-local WM_PARTS = { "cheat", "lua", "user", "nick", "fps", "ping" }
-local WM_POS   = { "top-left", "top-right", "bottom-left", "bottom-right" }
-
-local subwm = vtab:Sub("Watermark")
-subwm:Row()
-local wmSec = subwm:Section("Watermark")
-wmOn    = wmSec:Checkbox("Enabled", true)
-wmElems = wmSec:MultiCombo("Elements",
-    { "Cheat name", "Lua name", "Username", "Nickname", "fps", "ping" }, { 2, 4, 5, 6 })
-wmPos   = wmSec:Combo("Position", { "Top left", "Top right", "Bottom left", "Bottom right" }, 2)
-
-local ncClock = (function()
-    for _, fn in ipairs({ function() return globals.RealTime() end,
-                          function() return globals.CurTime() end,
-                          function() return os.clock() end }) do
-        local ok, v = pcall(fn)
-        if ok and type(v) == "number" then return fn end
-    end
-    return function() return 0 end
-end)()
-
-local NC_LEET = {
-    a = { "@", "4" }, b = { "6", "8" }, c = { "<" },
-    e = { "3" },      f = { "ph" },     g = { "9", "6" }, h = { "#" },
-    i = { "1", "!" },     l = { "1" },
-    m = { "|\\/|" },  n = { "|\\|" },   o = { "0" },
-    r = { "|2" },     s = { "$" }, t = { "7" },
-    v = { "\\/" },    z = { "2" },
-}
-
-local function ncGlitch(target)
-    local function corrupt()
-        local chars = {}
-        for i = 1, #target do
-            local c = target:sub(i, i)
-            local alt = NC_LEET[c:lower()]
-            if i > 1 and i < #target and alt and math.random() < 0.4 then
-                c = alt[math.random(#alt)]
+    if gdi32 then
+        for _, f in ipairs(FONT_URLS) do
+            local path = dir .. "\\" .. f.file
+            local exists = false
+            pcall(function() exists = ffi.C.GetFileAttributesA(path) ~= 0xFFFFFFFF end)
+            if not exists and urlmon then
+                pcall(function() urlmon.URLDownloadToFileA(nil, f.url, path, 0, nil) end)
             end
-            chars[i] = c
+            pcall(function() gdi32.AddFontResourceExA(path, 0x10, nil) end)
+            coroutine.yield()
         end
-        return table.concat(chars)
-    end
-    local seq = {}
-    local function burst(n)
-        for _ = 1, n do seq[#seq + 1] = { t = corrupt(), ms = 55 } end
-    end
-    burst(6)
-    seq[#seq + 1] = { t = target, ms = 2000 }
-    burst(6)
-    seq[#seq + 1] = { t = target, ms = 2000 }
-    return seq
-end
-
-local NC_FEM = {
-    { t = "",                  ms = 550 },
-{ t = "$d",                ms = 55 },  { t = "$di",               ms = 85 },
-{ t = "$di5",              ms = 55 },  { t = "$dis",              ms = 85 },
-{ t = "$disc",             ms = 55 },  { t = "$disco",            ms = 85 },
-{ t = "$discor",           ms = 55 },  { t = "$discord",          ms = 85 },
-{ t = "$discord.",         ms = 55 },  { t = "$discord.g",        ms = 85 },
-{ t = "$discord.gg",       ms = 55 },  { t = "$discord.gg/",      ms = 85 },
-{ t = "$discord.gg/d",     ms = 55 },  { t = "$discord.gg/da",    ms = 85 },
-{ t = "$discord.gg/dad",   ms = 55 },  { t = "$discord.gg/dada",  ms = 85 },
-{ t = "$discord.gg/dadaV", ms = 55 },  { t = "$discord.gg/dadav", ms = 90 },
-{ t = "$discord.gg/dadav", ms = 70 },  { t = "$discord.gg/dadav$",ms = 3000 },
-{ t = "$discord.gg/dadav", ms = 70 },  { t = "$discord.gg/dadav", ms = 70 },
-{ t = "$discord.gg/dadav$",  ms = 60 },  { t = "$‎",   ms = 40 },
-{ t = "$‎",    ms = 40 },  { t =      "$‎",     ms = 40 },
-{ t = "$tiktok.com/@swiuc_4422",      ms = 700 },   { t =  "$‎ ",       ms = 40 },
-{ t = "$tiktok.com/@swiuc_4422",        ms = 700 },  { t = "‎ ",         ms = 40 },
-{ t = "$‎",          ms = 40 },  { t = "‎",           ms = 40 },
-{ t = "$‎",            ms = 40 },  { t = "$swiuc",             ms = 85 },
-{ t = "$discord.gg/dadav",           ms = 60 },  { t = "$‎",               ms = 100 },
-{ t = "$discord.gg/dadav",           ms = 60 },  { t = "$‎",               ms = 100 },
-}
-
-local NC_AIM = {
-    { t = "",            ms = 450 },
-    { t = "[ti]",           ms = 120 },  { t = "[tikt]",          ms = 120 },
-    { t = "[tiktok]",         ms = 120 },  { t = "[tiktok.c]",        ms = 120 },
-    { t = "[tiktok.com]",       ms = 120 },  { t = "[tiktok.com/@]",      ms = 120 },
-    { t = "[tiktok.com/@sw]",     ms = 110 }, { t = "[tiktok.com/@swiu]",    ms = 120 },
-    { t = "[tiktok.com/@swiuc_]",   ms = 90 },  { t = "[tiktok.com/@swiuc_44]",  ms = 120 },
-    { t = "[tiktok.com/@swiuc_4422]", ms = 2000 },
-    { t = "[tiktok.com/@swiuc_44]",  ms = 120 },  { t = "[tiktok.com/@swiuc_]",   ms = 120 },
-    { t = "[tiktok.com/@swiu]",    ms = 120 },  { t = "[tiktok.com/@sw]",     ms = 120 },
-    { t = "[tiktok.com/@]",      ms = 120 },  { t = "[tiktok.com]",       ms = 120 },
-    { t = "[tiktok.c]",        ms = 120 },  { t = "[tiktok]",         ms = 120 },
-    { t = "[tikt]",          ms = 120 },  { t = "[ti]",           ms = 120 },
-}
-
-local NC_FEM_G = ncGlitch("$femboytap$")
-local NC_AIM_G = ncGlitch("[AIMWARE.NET]")
-
-local function ncParse(str, defMs)
-    local frames = {}
-    for tok in (str .. ","):gmatch("([^,]*),") do
-        if tok ~= "" then
-            local t, ms = tok:match("^(.-):(%d+)$")
-            if t then frames[#frames + 1] = { t = t, ms = tonumber(ms) }
-            else      frames[#frames + 1] = { t = tok, ms = defMs } end
-        end
-    end
-    return frames
-end
-
-local function ncFrameAt(seq, t, factor)
-    factor = factor or 1
-    local n = #seq; if n == 0 then return "" end
-    local total = 0
-    for i = 1, n do total = total + seq[i].ms * factor end
-    if total <= 0 then return seq[1].t end
-    local ms  = (t * 1000) % total
-    local acc = 0
-    for i = 1, n do
-        acc = acc + seq[i].ms * factor
-        if ms < acc then return seq[i].t end
-    end
-    return seq[n].t
-end
-
-local function ncValue(t)
-    local src = ncSrc and ncSrc:Get() or 1
-    local glitch = ncStyle and ncStyle:Get() == 2
-    local s
-    if src == 2 then
-        s = ncFrameAt(glitch and NC_FEM_G or NC_FEM, t, (ncSpeed:Get() or 400) / 400)
-    elseif src == 3 then
-        s = ncFrameAt(glitch and NC_AIM_G or NC_AIM, t, (ncSpeed:Get() or 400) / 400)
-    elseif src == 4 then
-        s = ncFrameAt(ncParse(ncText:Get(), floor(ncSpeed:Get() or 400)), t, 1)
     else
-        s = ncText:Get()
+        print("[femboytap] ffi/gdi32 unavailable, using system fonts")
     end
-    s = s or ""
-    if ncMode and ncMode:Get() == 2 then
-        local rn = NC.origName()
-        if rn and rn ~= "" then s = (s == "") and rn or (s .. " " .. rn) end
-    end
-    return s
+
+    initFonts()
 end
 
-local function ncApply(val, raw)
-    if not val or val == "" then return end
-    pcall(NC.fixFlags)
-    NC.setName(val)
-    if raw then
-        pcall(function() client.Command("setinfo name x", true) end)
-    else
-        pcall(function() client.Command('setinfo name "' .. val:gsub('"', '') .. '"', true) end)
-    end
+local function setcol(c) draw.Color(c[1], c[2], c[3], rnd((c[4] or 255) * ALPHA)) end
+
+local function rect(x, y, w, h, c)
+    setcol(c); draw.FilledRect(rnd(x), rnd(y), rnd(x + w), rnd(y + h))
 end
 
-local ntab = M:Tab("Misc")
-ntab:Row()
-local rgSec = ntab:Section("Matchmaking region")
-rgOn    = rgSec:Checkbox("Enabled", false)
-rgCmb   = rgSec:MultiCombo("Allowed regions", RG.names, {})
-rgCmbWd = rgSec.ws[#rgSec.ws]
-rgPen   = rgSec:Slider("Ping penalty", 200, 50, 250, 1, "%.0f")
-rgMin   = rgSec:Checkbox("Minimize selected ping", true)
-rgSec:Button("Refresh regions", function()
-    if not RG.enumerate then return end
-    local selIds = {}
-    local sel = rgCmb:Get()
-    for i, id in ipairs(RG.ids) do if sel[i] then selIds[id] = true end end
-    RG.enumerate()
-    local nv = {}
-    for i, id in ipairs(RG.ids) do if selIds[id] then nv[i] = true end end
-    rgCmbWd.options = RG.names
-    rgCmbWd.value   = nv
-end)
-
-ntab:Col()
-local ncSec = ntab:Section("Name changer")
-ncOn     = ncSec:Checkbox("Enabled", false)
-ncMode   = ncSec:Combo("Mode", { "Full name", "Clantag" }, 1)
-ncSrc    = ncSec:Combo("Source", { "Static", "Femboytap", "Aimware", "Custom" }, 1)
-ncStyle  = ncSec:Combo("Style", { "Typing", "Glitch" }, 1)
-ncText   = ncSec:Input("Text / frames", "", "name  /  a:80,ai:80,aim:200")
-ncSpeed  = ncSec:Slider("Frame ms", 400, 100, 1000, 10, "%.0f")
-ncSec:Button("Apply once", function() ncApply(ncValue(ncClock()), false) end)
-
-ntab:Col()
-local vrSec = ntab:Section("Vote revealer")
-vrOn   = vrSec:Checkbox("Enabled", false)
-vrMode = vrSec:Combo("Mode", { "Chat", "Notification", "Both" }, 3)
-vrSec:Button("Test", function() VR.test() end)
-
-VR._on   = function() return vrOn:Get() end
-VR._mode = function() return vrMode:Get() end
-
-
-local lastWm
-local function wmSync()
-    local sel = wmElems:Get()
-    local parts = {}
-    for i, k in ipairs(WM_PARTS) do parts[k] = sel[i] and true or false end
-    local nick, ping = HS.localInfo()
-    M:WatermarkSet({
-        enabled = wmOn:Get(),
-        parts   = parts,
-        user    = cheat.GetUserName(),
-        nick    = nick,
-        ping    = ping,
-        pos     = WM_POS[wmPos:Get()],
-    })
-
-    local key = table.concat({ wmOn:Get() and 1 or 0, parts.cheat and 1 or 0, parts.lua and 1 or 0,
-                               parts.user and 1 or 0, parts.nick and 1 or 0, parts.fps and 1 or 0,
-                               parts.ping and 1 or 0, wmPos:Get() }, ":")
-    if key ~= lastWm then
-        lastWm = key
-        C.setOpt("wm_on", wmOn:Get())
-        for _, k in ipairs(WM_PARTS) do C.setOpt("wm_" .. k, parts[k]) end
-        C.setOpt("wm_pos", wmPos:Get())
+local function rfill(x, y, w, h, r, c, tl, tr, br, bl)
+    x, y, w, h = rnd(x), rnd(y), rnd(w), rnd(h)
+    r = mmin(r, floor(w / 2), floor(h / 2))
+    if r <= 0 then rect(x, y, w, h, c); return end
+    if tl == nil then tl, tr, br, bl = true, true, true, true end
+    rect(x, y + r, w, h - 2 * r, c)
+    for dy = 0, r - 1 do
+        local dx = r - floor(sqrt(r * r - (r - dy - 0.5) ^ 2) + 0.5)
+        local lt, rt = tl and dx or 0, tr and dx or 0
+        local lb, rb = bl and dx or 0, br and dx or 0
+        rect(x + lt, y + dy, w - lt - rt, 1, c)
+        rect(x + lb, y + h - 1 - dy, w - lb - rb, 1, c)
     end
 end
 
-local lastRg
-local function rgSync()
-    if not RG.ok then return end
-    RG.enabled  = rgOn:Get()
-    RG.add      = floor(rgPen:Get() + 0.5)
-    RG.minimize = rgMin:Get()
-    local sel  = rgCmb:Get()
-    local allow, picks = {}, {}
-    for i, id in ipairs(RG.ids) do
-        if sel[i] then allow[id] = true; picks[#picks + 1] = id end
+local function rbox(x, y, w, h, r, fill, brd)
+    rfill(x, y, w, h, r, brd)
+    rfill(x + 1, y + 1, w - 2, h - 2, r - 1, fill)
+end
+
+local function frame(x, y, w, h, c)
+    rect(x, y, w, 1, c); rect(x, y + h - 1, w, 1, c)
+    rect(x, y, 1, h, c); rect(x + w - 1, y, 1, h, c)
+end
+
+local function rgb2hsv(r, g, b)
+    r, g, b = r / 255, g / 255, b / 255
+    local mx, mn = mmax(r, g, b), mmin(r, g, b)
+    local v, d = mx, mx - mn
+    local s = mx == 0 and 0 or d / mx
+    local h = 0
+    if d ~= 0 then
+        if mx == r then h = ((g - b) / d) % 6
+        elseif mx == g then h = (b - r) / d + 2
+        else h = (r - g) / d + 4 end
+        h = h / 6; if h < 0 then h = h + 1 end
     end
-    RG.allow = allow
-    local key = (RG.enabled and "1" or "0") .. ":" .. RG.add .. ":" .. (RG.minimize and "1" or "0") .. ":" .. table.concat(picks, ",")
-    if key ~= lastRg then
-        lastRg = key
-        C.setOpt("rg_on", RG.enabled)
-        C.setOpt("rg_pen", RG.add)
-        C.setOpt("rg_min", RG.minimize)
-        C.setOpt("rg_sel", table.concat(picks, ","))
+    return h, s, v
+end
+
+local function hsv2rgb(h, s, v)
+    local i = floor(h * 6) % 6
+    local f = h * 6 - floor(h * 6)
+    local p, q, t = v * (1 - s), v * (1 - f * s), v * (1 - (1 - f) * s)
+    local r, g, b
+    if i == 0 then r, g, b = v, t, p
+    elseif i == 1 then r, g, b = q, v, p
+    elseif i == 2 then r, g, b = p, v, t
+    elseif i == 3 then r, g, b = p, q, v
+    elseif i == 4 then r, g, b = t, p, v
+    else r, g, b = v, p, q end
+    return rnd(r * 255), rnd(g * 255), rnd(b * 255)
+end
+
+local function textw(s) local w = draw.GetTextSize(s); return w or 0 end
+
+local function text(x, y, c, s, font, align)
+    if font then draw.SetFont(font) end
+    if align == "center" then x = x - textw(s) / 2
+    elseif align == "right" then x = x - textw(s) end
+    setcol(c); draw.Text(rnd(x), rnd(y), s)
+end
+
+local _getMouse
+local function resolveMouse()
+    local cands = {
+        function() local p = input.GetMousePos();    return p.x or p[1], p.y or p[2] end,
+        function() local p = input.GetCursorPos();    return p.x or p[1], p.y or p[2] end,
+        function() local x, y = input.GetMousePos();  return x, y end,
+        function() local x, y = input.GetCursorPos(); return x, y end,
+    }
+    for _, f in ipairs(cands) do
+        local ok, x, y = pcall(f)
+        if ok and type(x) == "number" and type(y) == "number" then return f end
     end
 end
 
-local lastNcOn, lastNcCfg, ncTrig, lastSent, lastInGame = nil, nil, 0, nil, false
-local function ncSync()
-    if not NC.ok then return end
-    local on = ncOn:Get()
-    NC.enabled = on
-
-    local cfg = table.concat({ on and 1 or 0, ncMode:Get(), ncSrc:Get(), ncText:Get(),
-                               floor(ncSpeed:Get() + 0.5) }, "|")
-    if cfg ~= lastNcCfg then
-        lastNcCfg = cfg
-        C.setOpt("nc_on", on);          C.setOpt("nc_mode", ncMode:Get())
-        C.setOpt("nc_src", ncSrc:Get()); C.setOpt("nc_text", ncText:Get())
-        C.setOpt("nc_speed", floor(ncSpeed:Get() + 0.5))
+local _clock
+local function resolveClock()
+    local cands = {
+        function() return globals.RealTime() end,
+        function() return globals.CurTime() end,
+        function() return os.clock() end,
+    }
+    for _, f in ipairs(cands) do
+        local ok, v = pcall(f)
+        if ok and type(v) == "number" then return f end
     end
+end
+local function now() if _clock then local ok, v = pcall(_clock); if ok then return v end end return 0 end
 
-    if on ~= lastNcOn then
-        lastNcOn = on
-        ncTrig, lastSent = 0, nil
-        if on then
-            local nick = select(1, HS.localInfo())
-            if nick and nick ~= "" then NC._captured = nick end
-            NC.steamName()
-            NC._restore = nil
-        else
-            NC.setName(nil)
-            local rn = NC.origName()
-            NC._restore  = (rn and rn ~= "") and rn or nil
-            NC._restoreN = 0
+local _getWheel
+local function resolveWheel()
+    local cands = {
+        function() return input.GetMouseWheel() end,
+        function() return input.GetMouseWheelDelta() end,
+        function() return input.GetScrollDelta() end,
+        function() return input.GetScroll() end,
+    }
+    for _, f in ipairs(cands) do
+        local ok, v = pcall(f)
+        if ok and type(v) == "number" then return f end
+    end
+end
+local function readWheel() if _getWheel then local ok, v = pcall(_getWheel); if ok and type(v) == "number" then return v end end return 0 end
+
+local SHIFT_DIGITS = { [0x30] = ")", [0x31] = "!", [0x32] = "@", [0x33] = "#", [0x34] = "$",
+                       [0x35] = "%", [0x36] = "^", [0x37] = "&", [0x38] = "*", [0x39] = "(" }
+local OEM = {
+    [0xBA] = { ";", ":" }, [0xBB] = { "=", "+" }, [0xBC] = { ",", "<" }, [0xBD] = { "-", "_" },
+    [0xBE] = { ".", ">" }, [0xBF] = { "/", "?" }, [0xC0] = { "`", "~" }, [0xDB] = { "[", "{" },
+    [0xDC] = { "\\", "|" }, [0xDD] = { "]", "}" }, [0xDE] = { "'", '"' },
+}
+local function keyPressed(k) local v = false; pcall(function() v = input.IsButtonPressed(k) end); return v end
+local function keyDown(k)    local v = false; pcall(function() v = input.IsButtonDown(k)  end); return v end
+
+pcall(function() ffi.cdef[[
+    int    OpenClipboard(void*);
+    int    CloseClipboard(void);
+    int    EmptyClipboard(void);
+    void*  GetClipboardData(unsigned int);
+    void*  SetClipboardData(unsigned int, void*);
+    void*  GlobalAlloc(unsigned int, size_t);
+    void*  GlobalLock(void*);
+    int    GlobalUnlock(void*);
+]] end)
+
+local function clipGet()
+    local out
+    pcall(function()
+        if ffi.C.OpenClipboard(nil) == 0 then return end
+        local h = ffi.C.GetClipboardData(1)
+        if h ~= nil then
+            local p = ffi.C.GlobalLock(h)
+            if p ~= nil then out = ffi.string(ffi.cast("char*", p)); ffi.C.GlobalUnlock(h) end
+        end
+        ffi.C.CloseClipboard()
+    end)
+    if out then out = out:gsub("[\r\n\t]", "") end
+    return out
+end
+
+local function clipSet(s)
+    s = tostring(s or "")
+    pcall(function()
+        if ffi.C.OpenClipboard(nil) == 0 then return end
+        ffi.C.EmptyClipboard()
+        local n = #s + 1
+        local h = ffi.C.GlobalAlloc(2, n)
+        if h ~= nil then
+            local p = ffi.C.GlobalLock(h)
+            if p ~= nil then
+                local dst = ffi.cast("char*", p)
+                for i = 0, n - 1 do dst[i] = (i < #s) and s:byte(i + 1) or 0 end
+                ffi.C.GlobalUnlock(h)
+                ffi.C.SetClipboardData(1, h)
+            end
+        end
+        ffi.C.CloseClipboard()
+    end)
+end
+
+local _kr = {}
+local REPEAT_DELAY, REPEAT_RATE = 0.40, 0.035
+local function keyRepeat(k, t)
+    if not keyDown(k) then _kr[k] = nil; return false end
+    local s = _kr[k]
+    if not s then _kr[k] = { first = t, last = t }; return true end
+    if (t - s.first) >= REPEAT_DELAY and (t - s.last) >= REPEAT_RATE then s.last = t; return true end
+    return false
+end
+
+local function selBounds(wd)
+    local c = wd._caret or #wd.value
+    local a = wd._anchor or c
+    if a > c then a, c = c, a end
+    return a, c
+end
+local function hasSel(wd) return (wd._anchor or wd._caret or 0) ~= (wd._caret or 0) end
+local function delSel(wd)
+    local a, b = selBounds(wd)
+    if a == b then return false end
+    wd.value = wd.value:sub(1, a) .. wd.value:sub(b + 1)
+    wd._caret = a; wd._anchor = a
+    return true
+end
+
+local function inputView(wd, avail)
+    local v, n = wd.value, #wd.value
+    local caret = clamp(wd._caret or n, 0, n); wd._caret = caret
+    if wd._anchor then wd._anchor = clamp(wd._anchor, 0, n) end
+    local off = clamp(wd._off or 0, 0, n)
+    if caret < off then off = caret end
+    while off < caret and textw(v:sub(off + 1, caret)) > avail do off = off + 1 end
+    local e = n
+    while e > off and textw(v:sub(off + 1, e)) > avail do e = e - 1 end
+    if e < caret then e = caret end
+    wd._off = off
+    return v:sub(off + 1, e), off, e
+end
+
+local function caretFromX(wd, relx, off)
+    local v, n = wd.value, #wd.value
+    if relx <= 0 then return off end
+    for i = off + 1, n do
+        local w = textw(v:sub(off + 1, i))
+        if w >= relx then
+            local wp = textw(v:sub(off + 1, i - 1))
+            return ((relx - wp) < (w - relx)) and (i - 1) or i
         end
     end
+    return n
+end
 
-    local inGame = HS.localInfo() and true or false
-    if inGame and not lastInGame then NC._flags = nil; ncTrig, lastSent = 0, nil end
-    lastInGame = inGame
+local function pollText(wd, t)
+    local ctrl  = keyDown(0x11)
+    local shift = keyDown(0x10)
+    local n = #wd.value
+    wd._caret  = clamp(wd._caret or n, 0, n)
+    wd._anchor = wd._anchor and clamp(wd._anchor, 0, n) or wd._caret
 
-    if NC._restore then
-        if not inGame then return end
-        local t = ncClock()
-        if (t - ncTrig) >= 0.25 then
-            ncTrig = t
-            pcall(NC.fixFlags)
-            local rn = NC._restore
-            pcall(function() client.Command('setinfo name "' .. rn:gsub('"', '') .. '"', true) end)
-            NC._restoreN = (NC._restoreN or 0) + 1
-            if NC._restoreN >= 3 then NC._restore = nil end
+    if ctrl then
+        if keyPressed(0x41) then wd._anchor = 0; wd._caret = n end
+        if keyPressed(0x43) then local a, b = selBounds(wd); clipSet(a ~= b and wd.value:sub(a + 1, b) or wd.value) end
+        if keyPressed(0x58) then
+            local a, b = selBounds(wd)
+            if a ~= b then clipSet(wd.value:sub(a + 1, b)); delSel(wd)
+            else clipSet(wd.value); wd.value = ""; wd._caret = 0; wd._anchor = 0 end
+        end
+        if keyPressed(0x56) then
+            local s = clipGet()
+            if s then
+                delSel(wd)
+                local c = wd._caret
+                wd.value = wd.value:sub(1, c) .. s .. wd.value:sub(c + 1)
+                wd._caret = c + #s; wd._anchor = wd._caret
+            end
         end
         return
     end
 
-    if not on or not inGame then return end
-    local t   = ncClock()
-    local val = ncValue(t)
-    if val == "" then return end
-    if val ~= lastSent and (t - ncTrig) >= 0.2 then
-        ncTrig, lastSent = t, val
-        ncApply(val, true)
+    local function move(to)
+        wd._caret = clamp(to, 0, #wd.value)
+        if not shift then wd._anchor = wd._caret end
     end
-end
-
-local lastHlX, lastHlY, lastHlT
-local function hlSync()
-    M:HitlogSet({
-        enabled = hlOn:Get(),
-        colors  = { miss = cMiss:Get(), hit = cHit:Get(), hurt = cHurt:Get(), kill = cKill:Get() },
-    })
-
-    local x, y = M:HitlogPos()
-    if x ~= lastHlX or y ~= lastHlY then
-        lastHlX, lastHlY = x, y
-        C.setOpt("hl_x", x); C.setOpt("hl_y", y)
+    local function ins(ch)
+        delSel(wd)
+        local c = wd._caret
+        wd.value = wd.value:sub(1, c) .. ch .. wd.value:sub(c + 1)
+        wd._caret = c + 1; wd._anchor = wd._caret
     end
 
-    local t = table.concat({ hlOn:Get() and 1 or 0, hlHit:Get() and 1 or 0, hlKill:Get() and 1 or 0,
-                             hlHurt:Get() and 1 or 0, hlMiss:Get() and 1 or 0 }, ":")
-    if t ~= lastHlT then
-        lastHlT = t
-        C.setOpt("hl_on", hlOn:Get());   C.setOpt("hl_hit", hlHit:Get())
-        C.setOpt("hl_kill", hlKill:Get()); C.setOpt("hl_hurt", hlHurt:Get())
-        C.setOpt("hl_miss", hlMiss:Get())
+    if keyRepeat(0x25, t) then
+        local a, b = selBounds(wd)
+        if not shift and a ~= b then wd._caret = a; wd._anchor = a else move(wd._caret - 1) end
     end
-end
-
-local lastVr
-local function vrSync()
-    pcall(VR.flush)
-    if not vrOn then return end
-    local key = (vrOn:Get() and "1" or "0") .. ":" .. vrMode:Get()
-    if key ~= lastVr then
-        lastVr = key
-        C.setOpt("vr_on", vrOn:Get()); C.setOpt("vr_mode", vrMode:Get())
+    if keyRepeat(0x27, t) then
+        local a, b = selBounds(wd)
+        if not shift and a ~= b then wd._caret = b; wd._anchor = b else move(wd._caret + 1) end
     end
-end
+    if keyPressed(0x24) then move(0) end
+    if keyPressed(0x23) then move(#wd.value) end
 
-if C.loadConfig() then lastSel = -2 end
-cbAuto:Set(C.getOpt("autoFollow") and true or false)
-lastAuto = cbAuto:Get()
-
-do
-    local s = {}
-    local hx = tonumber(C.getOpt("hl_x")); if hx then s.x_off = hx end
-    local hy = tonumber(C.getOpt("hl_y")); if hy then s.y_off = hy end
-    if next(s) then M:HitlogSet(s) end
-end
-
-cbVm:Set(C.getOpt("vm_on") and true or false)
-vmX:Set(tonumber(C.getOpt("vm_x")) or 0)
-vmY:Set(tonumber(C.getOpt("vm_y")) or 0)
-vmZ:Set(tonumber(C.getOpt("vm_z")) or 0)
-
-do
-    local cur = C.getLocalModel()
-    if cur and modelPaths then
-        for i = 2, #modelPaths do
-            if modelPaths[i] == cur then modelLb:Set(i); break end
+    if keyRepeat(0x08, t) then
+        if not delSel(wd) then
+            local c = wd._caret
+            if c > 0 then wd.value = wd.value:sub(1, c - 1) .. wd.value:sub(c + 1); wd._caret = c - 1; wd._anchor = c - 1 end
         end
     end
-    lastModelSel = modelLb:Get()
+    if keyRepeat(0x2E, t) then
+        if not delSel(wd) then
+            local c = wd._caret
+            if c < #wd.value then wd.value = wd.value:sub(1, c) .. wd.value:sub(c + 2) end
+        end
+    end
+
+    if keyRepeat(0x20, t) then ins(" ") end
+    for k = 0x41, 0x5A do
+        if keyRepeat(k, t) then local ch = string.char(k); ins(shift and ch or ch:lower()) end
+    end
+    for k = 0x30, 0x39 do
+        if keyRepeat(k, t) then ins(shift and SHIFT_DIGITS[k] or string.char(k)) end
+    end
+    for k, pair in pairs(OEM) do
+        if keyRepeat(k, t) then ins(shift and pair[2] or pair[1]) end
+    end
+    if keyPressed(0x0D) or keyPressed(0x1B) then M._focus = nil end
 end
 
-local function getBool(k, d)
-    local v = C.getOpt(k); if v == nil then return d end
-    return v and true or false
+local ms = { x = 0, y = 0, down = false, pressed = false, released = false, consumed = false }
+local function updateMouse()
+    if _getMouse then
+        local ok, x, y = pcall(_getMouse)
+        if ok then ms.x, ms.y = x or ms.x, y or ms.y end
+    end
+    local down = false
+    pcall(function() down = input.IsButtonDown(0x01) and true or false end)
+    ms.pressed  = down and not ms.down
+    ms.released = (not down) and ms.down
+    ms.down     = down
+    ms.consumed = false
+    ms.wheel    = readWheel()
 end
-hlOn:Set(getBool("hl_on", true))
-hlHit:Set(getBool("hl_hit", true))
-hlKill:Set(getBool("hl_kill", true))
-hlHurt:Set(getBool("hl_hurt", true))
-hlMiss:Set(getBool("hl_miss", false))
-hsOn:Set(getBool("hs_on2", true))
-ksOn:Set(getBool("ks_on2", false))
-local function setCmb(cmb, k)
-    local i = tonumber(C.getOpt(k))
-    if i and i >= 1 and i <= #SND_NAMES then cmb:Set(i) end
-end
-setCmb(hsCmb, "hs_snd2")
-setCmb(ksCmb, "ks_snd2")
-hsVol:Set(tonumber(C.getOpt("hs_vol2")) or 100)
-ksVol:Set(tonumber(C.getOpt("ks_vol2")) or 100)
 
-wmOn:Set(getBool("wm_on", true))
-do
-    local cur = wmElems:Get()
+local function hovering(x, y, w, h)
+    return ms.x >= x and ms.x <= x + w and ms.y >= y and ms.y <= y + h
+end
+
+local function clicked(x, y, w, h)
+    if ms.consumed or not ms.pressed then return false end
+    if hovering(x, y, w, h) then ms.consumed = true; return true end
+    return false
+end
+
+local function handle(w)
+    return {
+        Get = function() return w.value end,
+        Set = function(_, v) w.value = v end,
+    }
+end
+
+local UI = {
+    T = T, now = now, clamp = clamp, lerp = lerpc,
+    rect  = function(x, y, w, h, c) rect(x, y, w, h, c) end,
+    rfill = function(x, y, w, h, r, c) rfill(x, y, w, h, r, c) end,
+    rbox  = function(x, y, w, h, r, f, b) rbox(x, y, w, h, r, f, b or T.border) end,
+    text  = function(x, y, s, col, align) text(x, y, col or T.text, tostring(s), FONT, align) end,
+    title = function(x, y, s, col, align) text(x, y, col or T.texthi, tostring(s), FONT_B, align) end,
+    textw = function(s) return textw(tostring(s)) end,
+    hover = function(x, y, w, h) return hovering(x, y, w, h) end,
+    click = function(x, y, w, h) return clicked(x, y, w, h) end,
+    mouse = function() return ms.x, ms.y, ms.down end,
+    screen = function() local w, h = 0, 0; pcall(function() w, h = draw.GetScreenSize() end); return w, h end,
+}
+
+local IM = {}
+UI._x, UI._cy, UI._w = 0, 0, 200
+UI.layout = function(x, y, w) UI._x = x; UI._cy = y; if w then UI._w = w end end
+
+local Section = {}
+Section.__index = Section
+
+function Section.new(title) return setmetatable({ title = title, ws = {} }, Section) end
+
+function Section:_add(w) self.ws[#self.ws + 1] = w; return handle(w) end
+
+function Section:Checkbox(label, def)
+    return self:_add({ kind = "check", label = label, value = def and true or false })
+end
+
+function Section:Button(label, cb)
+    return self:_add({ kind = "button", label = label, cb = cb })
+end
+
+function Section:Slider(label, def, mn, mx, step, fmt)
+    step = step or 1
+    return self:_add({ kind = "slider", label = label, value = def, min = mn, max = mx,
+                       step = step, dec = decimalsOf(step), fmt = fmt })
+end
+
+function Section:SliderFloat(label, def, mn, mx, fmt, step)
+    return self:Slider(label, def, mn, mx, step or 0.01, fmt)
+end
+
+function Section:Combo(label, options, def)
+    return self:_add({ kind = "combo", label = label, options = options, value = def or 1 })
+end
+
+function Section:MultiCombo(label, options, defaults)
     local sel = {}
-    for i, k in ipairs(WM_PARTS) do
-        local v = C.getOpt("wm_" .. k)
-        if v == nil then sel[i] = cur[i] and true or nil
-        else sel[i] = v and true or nil end
-    end
-    wmElems:Set(sel)
-end
-do local p = tonumber(C.getOpt("wm_pos")); if p and p >= 1 and p <= #WM_POS then wmPos:Set(p) end end
-
-rgOn:Set(getBool("rg_on", false))
-rgMin:Set(getBool("rg_min", false))
-do local p = tonumber(C.getOpt("rg_pen")); if p and p >= 50 and p <= 250 then rgPen:Set(p) end end
-do
-    local s = C.getOpt("rg_sel")
-    if type(s) == "string" and s ~= "" then
-        local want = {}
-        for id in s:gmatch("%-?%d+") do want[tonumber(id)] = true end
-        local sel = {}
-        for i, id in ipairs(RG.ids) do if want[id] then sel[i] = true end end
-        rgCmb:Set(sel)
-    end
+    if defaults then for _, i in ipairs(defaults) do sel[i] = true end end
+    return self:_add({ kind = "multicombo", label = label, options = options, value = sel })
 end
 
-ncOn:Set(getBool("nc_on", false))
-do local p = tonumber(C.getOpt("nc_mode"));  if p and p >= 1 and p <= 2 then ncMode:Set(p) end end
-do local p = tonumber(C.getOpt("nc_src"));   if p and p >= 1 and p <= 4 then ncSrc:Set(p) end end
-do local p = tonumber(C.getOpt("nc_speed")); if p and p >= 100 and p <= 1000 then ncSpeed:Set(p) end end
-do local s = C.getOpt("nc_text"); if type(s) == "string" then ncText:Set(s) end end
+function Section:Input(label, def, placeholder)
+    return self:_add({ kind = "input", label = label, value = def or "", placeholder = placeholder })
+end
 
-vrOn:Set(getBool("vr_on", false))
-do local p = tonumber(C.getOpt("vr_mode")); if p and p >= 1 and p <= 3 then vrMode:Set(p) end end
+function Section:ColorPicker(label, col)
+    col = col or { 255, 255, 255, 255 }
+    return self:_add({ kind = "color", label = label, value = { col[1], col[2], col[3], col[4] or 255 } })
+end
 
-M:OnFrame(function()
-    pcall(autoFollow)
-    pcall(syncSkins)
-    pcall(autoApply)
-    pcall(persistOpts)
-    pcall(syncModel)
-    pcall(syncVm)
-    pcall(HS.missTick)
-    pcall(HS.sync)
-    pcall(hlSync)
-    pcall(wmSync)
-    pcall(rgSync)
-    pcall(ncSync)
-    pcall(vrSync)
-end)
+function Section:Listbox(label, items, height, def)
+    local fill = (height == "fill")
+    if fill then self._hasFill = true end
+    return self:_add({ kind = "listbox", label = label, items = items or {}, value = def or 1,
+                       h = fill and 120 or (height or 200), fill = fill, scroll = 0 })
+end
 
-M:Build({ w = 720, h = 500 })
+function Section:Custom(height, fn)
+    return self:_add({ kind = "custom", h = height or 60, fn = fn })
+end
+
+function Section:height()
+    local h = 42 + 10
+    for _, wd in ipairs(self.ws) do h = h + wheight(wd) end
+    return h
+end
+
+function Section:render(x, y, w)
+    local h = self:height()
+    if self._hasFill and clipBottom then
+        local fh = (clipBottom - 12) - y
+        if fh > h then h = fh end
+    end
+    rbox(x, y, w, h, 6, T.section, T.border)
+
+    rfill(x + 14, y + 12, 3, 14, 1, T.accent)
+    text(x + 23, y + 12, T.texthi, self.title, FONT_B)
+    rect(x + 14, y + 33, w - 28, 1, T.divider)
+
+    local iy = y + 44
+    local ix = x + 14
+    local iw = w - 28
+    for _, wd in ipairs(self.ws) do
+        if wd.kind == "listbox" and wd.fill then
+            local labelH = (wd.label and wd.label ~= "") and 18 or 0
+            wd._fillH = mmax(60, (y + h - 12) - (iy + labelH))
+            self:_widget(wd, ix, iy, iw)
+            iy = iy + labelH + wd._fillH + 6
+        else
+            self:_widget(wd, ix, iy, iw)
+            iy = iy + wheight(wd)
+        end
+    end
+    return h
+end
+
+function Section:_widget(wd, x, y, w)
+    if wd.kind == "check" then
+        local box = 15
+        local by  = y + 1
+        local hov = hovering(x, by, w, box)
+        wd._h  = approach(wd._h or 0, hov and 1 or 0, 16)
+        wd._on = approach(wd._on or 0, wd.value and 1 or 0, 16)
+        local fill = lerpc(lerpc(T.widget, T.widgethi, wd._h), T.accent, wd._on)
+        rbox(x, by, box, box, 4, fill, lerpc(T.border, T.accent, wd._on))
+        text(x + box + 9, y + 2, lerpc(T.text, T.texthi, mmax(wd._h, wd._on)), wd.label, FONT)
+        if clicked(x, by, w, box) then wd.value = not wd.value end
+
+    elseif wd.kind == "button" then
+        local bh  = 22
+        local hov = hovering(x, y + 1, w, bh)
+        wd._h = approach(wd._h or 0, hov and 1 or 0, 16)
+        rbox(x, y + 1, w, bh, 5, lerpc(T.widget, T.widgethi, wd._h), T.border)
+        text(x + w / 2, y + 6, lerpc(T.text, T.texthi, wd._h), wd.label, FONT, "center")
+        if clicked(x, y + 1, w, bh) then
+            local ok, err = pcall(wd.cb); if not ok then print("[femboytap] button error: " .. tostring(err)) end
+        end
+
+    elseif wd.kind == "slider" then
+        local active = (M._slider == wd)
+        wd._h = approach(wd._h or 0, (active or hovering(x, y + 18 - 6, w, 18)) and 1 or 0, 16)
+        text(x, y, lerpc(T.text, T.texthi, wd._h), wd.label, FONT)
+        local valstr
+        if wd.fmt then valstr = string.format(wd.fmt, wd.value)
+        elseif wd.dec > 0 then valstr = string.format("%." .. wd.dec .. "f", wd.value)
+        else valstr = tostring(rnd(wd.value)) end
+        text(x + w, y, T.texthi, valstr, FONT, "right")
+        local ty, th = y + 18, 6
+        local frac = clamp((wd.value - wd.min) / (wd.max - wd.min), 0, 1)
+        rbox(x, ty, w, th, 3, lerpc(T.widget, T.widgethi, wd._h), T.border)
+        if frac > 0 then rfill(x, ty, mmax(th, w * frac), th, 3, T.accent, true, false, false, true) end
+        if ms.pressed and not ms.consumed and hovering(x, ty - 6, w, th + 12) then
+            ms.consumed = true; M._slider = wd
+        end
+        if active then
+            if ms.down and w > 0 then
+                local raw = wd.min + clamp((ms.x - x) / w, 0, 1) * (wd.max - wd.min)
+                if raw ~= raw then raw = wd.min end
+                local v = wd.min + floor((raw - wd.min) / wd.step + 0.5) * wd.step
+                v = clamp(v, wd.min, wd.max)
+                if wd.dec > 0 then v = tonumber(string.format("%." .. wd.dec .. "f", v)) or v end
+                wd.value = v
+            elseif not ms.down then
+                M._slider = nil
+            end
+        end
+
+    elseif wd.kind == "combo" then
+        local by, bh = y + 18, 22
+        local open = (M._combo == wd)
+        local hov  = hovering(x, by, w, bh)
+        wd._h = approach(wd._h or 0, (hov or open) and 1 or 0, 16)
+        text(x, y, lerpc(T.text, T.texthi, wd._h), wd.label, FONT)
+        rbox(x, by, w, bh, 5, lerpc(T.widget, T.widgethi, wd._h), open and T.accent or T.border)
+        text(x + 9, by + 5, open and T.texthi or lerpc(T.text, T.texthi, wd._h), wd.options[wd.value] or "?", FONT)
+        text(x + w - 16, by + 5, open and T.accent or T.textdim, open and "-" or "v", FONT)
+        if clicked(x, by, w, bh) then M._combo = open and nil or wd end
+        if M._combo == wd then M._dd = { wd = wd, x = x, y = by + bh, w = w, bh = bh } end
+
+    elseif wd.kind == "multicombo" then
+        local by, bh = y + 18, 22
+        local open = (M._combo == wd)
+        local hov  = hovering(x, by, w, bh)
+        wd._h = approach(wd._h or 0, (hov or open) and 1 or 0, 16)
+        text(x, y, lerpc(T.text, T.texthi, wd._h), wd.label, FONT)
+        rbox(x, by, w, bh, 5, lerpc(T.widget, T.widgethi, wd._h), open and T.accent or T.border)
+        local parts, count = {}, 0
+        for i, o in ipairs(wd.options) do if wd.value[i] then count = count + 1; parts[#parts + 1] = o end end
+        local shown = count == 0 and "None" or (count > 2 and (count .. " selected") or table.concat(parts, ", "))
+        text(x + 9, by + 5, open and T.texthi or lerpc(T.text, T.texthi, wd._h), shown, FONT)
+        text(x + w - 16, by + 5, open and T.accent or T.textdim, open and "-" or "v", FONT)
+        if clicked(x, by, w, bh) then M._combo = open and nil or wd end
+        if M._combo == wd then M._dd = { wd = wd, x = x, y = by + bh, w = w, bh = bh } end
+
+    elseif wd.kind == "input" then
+        local by, bh = y + 18, 22
+        local focused = (M._focus == wd)
+        local hov = hovering(x, by, w, bh)
+        wd._h = approach(wd._h or 0, (hov or focused) and 1 or 0, 16)
+        text(x, y, lerpc(T.text, T.texthi, wd._h), wd.label, FONT)
+        rbox(x, by, w, bh, 5, lerpc(T.widget, T.widgethi, wd._h), focused and T.accent or T.border)
+        local pad, avail = 9, w - 16
+        local tx, ty = x + pad, by + 5
+        if wd.value ~= "" or focused then
+            local vis, off = inputView(wd, avail)
+            if focused then
+                local a, b = selBounds(wd)
+                if a ~= b then
+                    local va, vb = clamp(a, off, off + #vis), clamp(b, off, off + #vis)
+                    local sx = textw(wd.value:sub(off + 1, va))
+                    local sw = textw(wd.value:sub(off + 1, vb)) - sx
+                    if sw > 0 then rfill(tx + sx - 1, by + 4, mmin(sw + 2, avail), bh - 8, 3, { T.accent[1], T.accent[2], T.accent[3], 110 }) end
+                end
+            end
+            text(tx, ty, focused and T.texthi or T.text, vis, FONT)
+            if focused and not hasSel(wd) and (floor(now() * 1.6) % 2 == 0) then
+                rfill(tx + textw(wd.value:sub(off + 1, wd._caret)), by + 4, 1, bh - 8, 0, T.accent)
+            end
+        else
+            text(tx, ty, T.textdim, wd.placeholder or "", FONT)
+        end
+        if ms.pressed and not ms.consumed and hovering(x, by, w, bh) then
+            ms.consumed = true; M._focus = wd
+            local c = caretFromX(wd, ms.x - tx, wd._off or 0)
+            wd._caret, wd._anchor, M._inputDrag = c, c, wd
+        end
+        if M._inputDrag == wd then
+            if ms.down and M._focus == wd then wd._caret = caretFromX(wd, ms.x - tx, wd._off or 0)
+            else M._inputDrag = nil end
+        end
+        if focused then pollText(wd, now()) end
+
+    elseif wd.kind == "color" then
+        local hov = hovering(x, y, w, 20)
+        wd._h = approach(wd._h or 0, hov and 1 or 0, 16)
+        text(x, y + 4, lerpc(T.text, T.texthi, wd._h), wd.label, FONT)
+        local sw, shh = 32, 14
+        local bx, by = x + w - sw, y + 3
+        rbox(bx, by, sw, shh, 3, { wd.value[1], wd.value[2], wd.value[3], 255 }, (M._cp == wd) and T.accent or T.border)
+        if clicked(bx, by, sw, shh) then
+            if M._cp == wd then M._cp = nil
+            else M._cp = wd; wd._hsv = { rgb2hsv(wd.value[1], wd.value[2], wd.value[3]) } end
+        end
+        if M._cp == wd then
+            M._cpRect = { x = x, y = y + 24, sx = bx, sy = by, sw = sw, sh = shh }
+        end
+
+    elseif wd.kind == "listbox" then
+        local ly = y
+        if wd.label and wd.label ~= "" then text(x, y, T.text, wd.label, FONT); ly = y + 18 end
+        local lh, itemH = (wd._fillH or wd.h), 20
+        rbox(x, ly, w, lh, 5, T.bg2, T.border)
+        local n = #wd.items
+        local visible = floor(lh / itemH)
+        local maxScroll = mmax(0, n - visible)
+        if (ms.wheel or 0) ~= 0 and hovering(x, ly, w, lh) then
+            wd.scroll = wd.scroll - (ms.wheel > 0 and 1 or -1)
+            ms.wheel = 0
+        end
+        wd.scroll = clamp(wd.scroll, 0, maxScroll)
+        local hasBar = n > visible
+        local listW = hasBar and (w - 9) or w
+        for vi = 0, visible - 1 do
+            local idx = vi + 1 + floor(wd.scroll)
+            if idx <= n then
+                local iy = ly + vi * itemH
+                local sel = (idx == wd.value)
+                local hov = hovering(x + 2, iy, listW - 4, itemH)
+                if sel then
+                    rfill(x + 3, iy + 1, listW - 6, itemH - 2, 3, T.accent_bg)
+                    rfill(x + 3, iy + 1, 2, itemH - 2, 1, T.accent)
+                elseif hov then
+                    rfill(x + 3, iy + 1, listW - 6, itemH - 2, 3, T.widget)
+                end
+                text(x + 11, iy + 3, (sel or hov) and T.texthi or T.text, tostring(wd.items[idx]), FONT)
+                if clicked(x + 2, iy, listW - 4, itemH) then wd.value = idx end
+            end
+        end
+        if hasBar then
+            local trackX = x + w - 6
+            local thumbH = mmax(20, lh * visible / n)
+            local thumbY = ly + (lh - thumbH) * (maxScroll > 0 and wd.scroll / maxScroll or 0)
+            rfill(trackX, ly + 2, 4, lh - 4, 2, T.widget)
+            rfill(trackX, thumbY, 4, thumbH, 2, T.widgethi)
+            if ms.pressed and not ms.consumed and hovering(trackX - 2, ly, 8, lh) then
+                ms.consumed = true; M._scrollbar = wd
+            end
+            if M._scrollbar == wd then
+                if ms.down then wd.scroll = rnd(clamp((ms.y - ly) / lh, 0, 1) * maxScroll)
+                else M._scrollbar = nil end
+            end
+        end
+
+    elseif wd.kind == "custom" then
+        if wd.fn then
+            UI._x, UI._cy, UI._w = x, y, w
+            local ok, err = pcall(wd.fn, UI, x, y, w)
+            if not ok then print("[femboytap] custom widget error: " .. tostring(err)) end
+            local used = UI._cy - y
+            wd._measured = used > 0 and used or wd.h
+        end
+    end
+end
+
+local function imWidget(id, factory)
+    local wd = IM[id]
+    if not wd then wd = factory(); IM[id] = wd end
+    return wd
+end
+local function imEmit(wd)
+    Section._widget(Section, wd, UI._x, UI._cy, UI._w)
+    UI._cy = UI._cy + wheight(wd)
+end
+
+function UI.checkbox(id, def)
+    local wd = imWidget(id, function() return { kind = "check", label = id, value = def and true or false } end)
+    imEmit(wd); return wd.value
+end
+function UI.slider(id, def, mn, mx, step, fmt)
+    local wd = imWidget(id, function() local s = step or 1
+        return { kind = "slider", label = id, value = def, min = mn, max = mx, step = s, dec = decimalsOf(s), fmt = fmt } end)
+    wd.min, wd.max = mn, mx
+    imEmit(wd); return wd.value
+end
+function UI.combo(id, options, def)
+    local wd = imWidget(id, function() return { kind = "combo", label = id, options = options, value = def or 1 } end)
+    wd.options = options
+    imEmit(wd); return wd.value
+end
+function UI.button(id)
+    local wd = imWidget(id, function() return { kind = "button", label = id } end)
+    wd._clicked = false
+    wd.cb = function() wd._clicked = true end
+    imEmit(wd); return wd._clicked
+end
+function UI.colorpicker(id, def)
+    local wd = imWidget(id, function() local c = def or { 255, 255, 255, 255 }
+        return { kind = "color", label = id, value = { c[1], c[2], c[3], c[4] or 255 } } end)
+    imEmit(wd); return wd.value
+end
+function UI.label(s, col)
+    text(UI._x, UI._cy, col or T.text, tostring(s), FONT); UI._cy = UI._cy + 18
+end
+
+local function renderSectionAt(s, x, y, w)
+    local h = 40
+    pcall(function() h = s:height() end)
+    if clipBottom and y >= clipBottom then return h end
+    if clipTop and (y + h) <= clipTop then return h end
+    local rh = h
+    local ok, err = pcall(function() rh = s:render(x, y, w) or h end)
+    if not ok then print("[femboytap] section '" .. tostring(s.title) .. "' error: " .. tostring(err)); return h end
+    return rh
+end
+
+local function renderAutoPack(secs, x, y, w, cols)
+    cols = cols or 2
+    local colW = (w - (cols - 1) * T.pad) / cols
+    local colY, colX = {}, {}
+    for c = 1, cols do colY[c] = y; colX[c] = x + (c - 1) * (colW + T.pad) end
+    for _, s in ipairs(secs) do
+        local best = 1
+        for c = 2, cols do if colY[c] < colY[best] then best = c end end
+        colY[best] = colY[best] + renderSectionAt(s, colX[best], colY[best], colW) + T.sec_gap
+    end
+end
+
+local function renderRows(rows, x, y, w)
+    local cy = y
+    for _, row in ipairs(rows) do
+        local n = #row
+        if n > 0 then
+            local gap = 8
+            local colW = (w - (n - 1) * gap) / n
+            local rowH = 0
+            for ci, col in ipairs(row) do
+                local cxx = x + (ci - 1) * (colW + gap)
+                local yy = cy
+                for _, s in ipairs(col) do
+                    yy = yy + renderSectionAt(s, cxx, yy, colW) + T.sec_gap
+                end
+                if (yy - cy) > rowH then rowH = yy - cy end
+            end
+            cy = cy + rowH
+        end
+    end
+end
+
+local function renderContainer(cont, x, y, w)
+    if cont._rows and #cont._rows > 0 then renderRows(cont._rows, x, y, w)
+    else renderAutoPack(cont.secs, x, y, w, cont._cols) end
+end
+
+local function measureSecs(secs)
+    local total = 0
+    for _, s in ipairs(secs) do local h = 40; pcall(function() h = s:height() end); total = total + h + T.sec_gap end
+    return total
+end
+
+local function containerHeight(cont)
+    if cont._rows and #cont._rows > 0 then
+        local total = 0
+        for _, row in ipairs(cont._rows) do
+            local rowH = 0
+            for _, col in ipairs(row) do local h = measureSecs(col); if h > rowH then rowH = h end end
+            total = total + rowH
+        end
+        return total
+    end
+    local cols = cont._cols or 2
+    local colY = {}
+    for c = 1, cols do colY[c] = 0 end
+    for _, s in ipairs(cont.secs) do
+        local best = 1
+        for c = 2, cols do if colY[c] < colY[best] then best = c end end
+        local h = 40; pcall(function() h = s:height() end)
+        colY[best] = colY[best] + h + T.sec_gap
+    end
+    local mx = 0
+    for c = 1, cols do if colY[c] > mx then mx = colY[c] end end
+    return mx
+end
+
+local function tabContentHeight(tab)
+    if #tab.subs == 0 then return containerHeight(tab) end
+    local sub = tab.subs[tab._activeSub]
+    return 28 + T.sec_gap + (sub and containerHeight(sub) or 0)
+end
+
+local function addSection(cont, title)
+    local s = Section.new(title)
+    if cont._rows and #cont._rows > 0 then
+        local row = cont._rows[#cont._rows]
+        local col = row[#row]
+        col[#col + 1] = s
+    else
+        cont.secs[#cont.secs + 1] = s
+    end
+    return s
+end
+local function contRow(cont) cont._rows[#cont._rows + 1] = { {} }; return cont end
+local function contCol(cont)
+    if #cont._rows == 0 then cont._rows[#cont._rows + 1] = { {} } end
+    local row = cont._rows[#cont._rows]
+    row[#row + 1] = {}
+    return cont
+end
+
+local Sub = {}
+Sub.__index = Sub
+function Sub.new(name) return setmetatable({ name = name, secs = {}, _rows = {} }, Sub) end
+function Sub:Section(title) return addSection(self, title) end
+function Sub:Row() return contRow(self) end
+function Sub:Col() return contCol(self) end
+function Sub:Columns(n) self._cols = n; return self end
+
+local Tab = {}
+Tab.__index = Tab
+
+function Tab.new(name)
+    return setmetatable({ name = name, secs = {}, subs = {}, _rows = {}, _activeSub = 1, _subT = 1 }, Tab)
+end
+
+function Tab:Section(title) return addSection(self, title) end
+function Tab:Row() return contRow(self) end
+function Tab:Col() return contCol(self) end
+function Tab:Columns(n) self._cols = n; return self end
+
+function Tab:Sub(name)
+    local s = Sub.new(name)
+    self.subs[#self.subs + 1] = s
+    return s
+end
+
+function Tab:render(x, y, w)
+    if #self.subs == 0 then
+        renderContainer(self, x, y, w)
+        return
+    end
+
+    local barH = 28
+    local sx = x
+    local pos, tgtX, tgtW = {}, x, 0
+    for i, sub in ipairs(self.subs) do
+        local tw = textw(sub.name) + 24
+        pos[i] = { x = sx, w = tw }
+        if i == self._activeSub then tgtX, tgtW = sx, tw end
+        sx = sx + tw
+    end
+
+    local relX = tgtX - x
+    self._subX = approach(self._subX or relX, relX, 16)
+    self._subW = approach(self._subW or tgtW, tgtW, 16)
+    rfill(x + self._subX + 6, y + barH - 6, self._subW - 12, 2, 1, T.accent)
+
+    for i, sub in ipairs(self.subs) do
+        local p = pos[i]
+        local active = (i == self._activeSub)
+        local hov = hovering(p.x, y, p.w, barH)
+        sub._h = approach(sub._h or 0, (active or hov) and 1 or 0, 16)
+        text(p.x + p.w / 2, y + 6, lerpc(T.textdim, T.texthi, sub._h), sub.name, FONT, "center")
+        if clicked(p.x, y, p.w, barH) and self._activeSub ~= i then self._activeSub = i; self._subT = 0 end
+    end
+    rect(x, y + barH, w, 1, T.divider)
+
+    self._subT = self._subT + (1 - self._subT) * clamp(DT * ANIM.tab, 0, 1)
+    local e = smooth(self._subT)
+    local sub = self.subs[self._activeSub]
+    if sub then renderContainer(sub, x + (1 - e) * 16, y + barH + T.sec_gap, w) end
+end
+
+M._tabs   = {}
+M._active = 1
+M._win    = { x = T.x, y = T.y, w = T.w, h = T.h }
+M._t      = 0
+M._tabT   = 1
+M._last   = nil
+M._toasts = {}
+M._notifPos = T.notif_pos
+M._onframe = {}
+
+M._hitlog = {
+    queue     = {},
+    enabled   = true,
+    pos       = nil,
+    x_off     = 0,
+    y_off     = nil,
+    font_size = T.font_size,
+    life      = 2.8,
+    fade_in   = 0.16,
+    fade_out  = 0.40,
+    max       = 6,
+    colors    = {
+        miss = { 235, 90, 90 },
+        hit  = { 139, 124, 246 },
+        hurt = { 245, 170, 70 },
+        kill = { 80, 200, 120 },
+    },
+}
+
+M._watermark = {
+    enabled    = false,
+    parts      = { cheat = false, lua = true, user = false, nick = true, fps = true, ping = true },
+    cheat_name = "AMINOĞLUWARE.NET",
+    lua_name   = "SWİUC.CC",
+    user       = nil,
+    nick       = nil,
+    ping       = nil,
+    pos        = "top-right",
+    _fps       = 0,
+    _killTry   = -1,
+}
+
+local WM_MISC_KEYS = { "misc.watermark", "misc.watermark.enable", "misc.indicators.watermark" }
+
+function M:Watermark(on) self._watermark.enabled = on and true or false; return self end
+
+function M:WatermarkSet(opts)
+    local wm = self._watermark
+    if opts.enabled    ~= nil then wm.enabled = opts.enabled and true or false end
+    if opts.cheat_name ~= nil then wm.cheat_name = opts.cheat_name end
+    if opts.lua_name   ~= nil then wm.lua_name = opts.lua_name end
+    if opts.user       ~= nil then wm.user = opts.user end
+    if opts.nick       ~= nil then wm.nick = opts.nick end
+    if opts.ping       ~= nil then wm.ping = opts.ping end
+    if opts.pos        ~= nil then wm.pos = opts.pos end
+    if opts.parts then
+        for k, v in pairs(opts.parts) do wm.parts[k] = v and true or false end
+    end
+    return self
+end
+
+function M:OnFrame(fn) self._onframe[#self._onframe + 1] = fn; return self end
+
+function M:Tab(name)
+    local t = Tab.new(name)
+    self._tabs[#self._tabs + 1] = t
+    return t
+end
+
+local function smoother(x) x = clamp(x, 0, 1); return x * x * x * (x * (x * 6 - 15) + 10) end
+
+function M:Notify(text, kind)
+    self._toasts[#self._toasts + 1] = { text = tostring(text), kind = kind or "info", born = now(), life = T.notif_life }
+    while #self._toasts > 6 do table.remove(self._toasts, 1) end
+end
+function M:Info(t)    self:Notify(t, "info")    end
+function M:Success(t) self:Notify(t, "success") end
+function M:Error(t)   self:Notify(t, "error")   end
+
+function M:SetNotifPos(p) self._notifPos = p end
+function M:GetNotifPos() return self._notifPos end
+
+local HITLOG_TEXT = { miss = "missed", hit = "hit", hurt = "hurt", kill = "killed enemy" }
+
+local function hitlogLabel(e)
+    if e.text and e.text ~= "" then return e.text end
+    local base = HITLOG_TEXT[e.kind] or e.kind
+    if e.dmg then return base .. "  " .. tostring(e.dmg) end
+    return base
+end
+
+function M:Hitlog(kind, dmg, txt)
+    local hl = self._hitlog
+    hl.queue[#hl.queue + 1] = {
+        kind = tostring(kind or "hit"):lower(),
+        dmg  = dmg, text = txt, born = now(),
+    }
+    while #hl.queue > (hl.max or 6) do table.remove(hl.queue, 1) end
+    return self
+end
+
+function M:HitlogSet(opts)
+    local hl = self._hitlog
+    if opts.enabled   ~= nil then hl.enabled   = opts.enabled   end
+    if opts.pos       ~= nil then hl.pos       = opts.pos       end
+    if opts.x_off     ~= nil then hl.x_off     = opts.x_off     end
+    if opts.y_off     ~= nil then hl.y_off     = opts.y_off     end
+    if opts.font_size        then hl.font_size = opts.font_size end
+    if opts.life             then hl.life      = opts.life      end
+    if opts.colors then
+        for k, v in pairs(opts.colors) do if v then hl.colors[tostring(k):lower()] = v end end
+    end
+    return self
+end
+
+function M:HitlogPos() return self._hitlog.x_off or 0, self._hitlog.y_off end
+function M:HitlogResetPos() self._hitlog.x_off, self._hitlog.y_off = 0, nil; return self end
+
+function M:HitlogColor(kind, col)
+    if col then self._hitlog.colors[tostring(kind):lower()] = col end
+    return self
+end
+
+function M:HitlogClear() self._hitlog.queue = {}; return self end
+
+function M:_drawToasts()
+    local toasts = self._toasts
+    if #toasts == 0 then return end
+
+    local SLIDE_IN, SLIDE_OUT, SLIDE_DIST, GAP = 0.32, 0.45, 24, 8
+    local W, M_OFF = T.notif_w, T.notif_margin
+    local sw, sh = 0, 0
+    pcall(function() sw, sh = draw.GetScreenSize() end)
+    if sw == 0 then return end
+
+    local pos   = self._notifPos
+    local right = pos:find("right") ~= nil
+    local top   = pos:find("top") ~= nil
+    local x0    = right and (sw - M_OFF - W) or M_OFF
+
+    local i = 1
+    while i <= #toasts do
+        if (now() - toasts[i].born) >= toasts[i].life + SLIDE_OUT + 0.05 then table.remove(toasts, i)
+        else i = i + 1 end
+    end
+
+    local y = top and M_OFF or (sh - M_OFF)
+
+    local order = {}
+    if top then for k = 1, #toasts do order[#order + 1] = k end
+    else for k = #toasts, 1, -1 do order[#order + 1] = k end end
+
+    for _, k in ipairs(order) do
+        local tw = toasts[k]
+        local age = now() - tw.born
+        local inE  = smoother(clamp(age / SLIDE_IN, 0, 1))
+        local outE = smoother(clamp((age - tw.life) / SLIDE_OUT, 0, 1))
+        local dx   = (1 - inE) * SLIDE_DIST + outE * SLIDE_DIST
+        local a    = inE * (1 - outE)
+        local h    = 46
+
+        local bx = right and (x0 + dx) or (x0 - dx)
+        local by = top and y or (y - h)
+
+        ALPHA = a
+        local kc = (tw.kind == "success" and T.notif_success) or (tw.kind == "error" and T.notif_error) or T.notif_info
+        rbox(bx, by, W, h, 8, T.section, T.border)
+        rfill(bx, by, 3, h, 3, kc, true, false, false, true)
+        text(bx + 14, by + 9, T.texthi, tw.text, FONT)
+
+        local prog = 1 - clamp(age / tw.life, 0, 1)
+        rect(bx + 12, by + h - 9, W - 24, 3, T.widget)
+        if prog > 0 then rfill(bx + 12, by + h - 9, (W - 24) * prog, 3, 1, kc, true, false, false, true) end
+
+        y = top and (y + (h + GAP) * a) or (y - (h + GAP) * a)
+    end
+end
+
+local HITLOG_DEMO = {
+    { kind = "hit",  label = "hit player in head for 90hp" },
+    { kind = "hurt", label = "hurt by player in chest for 20hp" },
+    { kind = "miss", label = "missed shot" },
+    { kind = "kill", label = "killed player in head for 100hp" },
+}
+local HL_SNAP_IN, HL_SNAP_OUT, HL_DEAD = 12, 18, 28
+local HL_BOTTOM = 160
+local function easeOutCubic(t) t = clamp(t, 0, 1); local u = 1 - t; return 1 - u * u * u end
+
+local function hitlogPos(hl, sw, sh)
+    local px = sw / 2 + (hl.x_off or 0)
+    local py = hl.y_off and (sh / 2 + hl.y_off) or (sh - HL_BOTTOM)
+    return px, py
+end
+
+local function hitlogEdit(hl, sw, sh, cx, cy, rowH, gap, reveal, row)
+    local x, y = hitlogPos(hl, sw, sh)
+    local grab = hl._rect
+
+    local dragging = hl._drag or false
+    local snapX, snapY = hl._snapX or false, hl._snapY or false
+    local pendX, pendY = hl._pendX or 0, hl._pendY or 0
+    local mx, my = ms.x, ms.y
+
+    if ms.pressed then
+        if grab and mx >= grab.x and mx <= grab.x + grab.w
+               and my >= grab.y and my <= grab.y + grab.h then
+            dragging = true; ms.consumed = true
+        end
+        snapX = mabs(x - cx) < 0.5
+        snapY = mabs(y - cy) < 0.5
+        pendX, pendY = 0, 0
+        hl._lmx, hl._lmy = mx, my
+    end
+    if not ms.down then dragging = false; pendX, pendY = 0, 0 end
+
+    local hw = grab and grab.w / 2 or 90
+    local hh = grab and grab.h / 2 or 50
+    local minX, maxX = HL_DEAD + hw, sw - HL_DEAD - hw
+    local minY, maxY = HL_DEAD + hh, sh - HL_DEAD - hh
+
+    if dragging then
+        ms.consumed = true
+        local dx = mx - (hl._lmx or mx)
+        local dy = my - (hl._lmy or my)
+        if dx ~= 0 then
+            if snapX then
+                pendX = pendX + dx
+                if mabs(pendX) > HL_SNAP_OUT then
+                    x = cx + (pendX >= 0 and 1 or -1) * (mabs(pendX) - HL_SNAP_OUT)
+                    snapX, pendX = false, 0
+                else x = cx end
+            else
+                x = x + dx
+                if mabs(x - cx) < HL_SNAP_IN then x, snapX, pendX = cx, true, 0 end
+            end
+        end
+        if dy ~= 0 then
+            if snapY then
+                pendY = pendY + dy
+                if mabs(pendY) > HL_SNAP_OUT then
+                    y = cy + (pendY >= 0 and 1 or -1) * (mabs(pendY) - HL_SNAP_OUT)
+                    snapY, pendY = false, 0
+                else y = cy end
+            else
+                y = y + dy
+                if mabs(y - cy) < HL_SNAP_IN then y, snapY, pendY = cy, true, 0 end
+            end
+        end
+        if minX <= maxX then x = clamp(x, minX, maxX) end
+        if minY <= maxY then y = clamp(y, minY, maxY) end
+    end
+
+    hl._lmx, hl._lmy = mx, my
+    hl._drag, hl._snapX, hl._snapY, hl._pendX, hl._pendY = dragging, snapX, snapY, pendX, pendY
+
+    if dragging then hl.x_off, hl.y_off = x - cx, y - cy end
+
+    if dragging then
+        ALPHA = 0.55
+        if snapX or mabs(x - cx) < 0.5 then rect(cx, 0, 1, sh, T.accent) end
+        if snapY or mabs(y - cy) < 0.5 then rect(0, cy, sw, 1, T.accent) end
+        ALPHA = 1
+    end
+
+    local n = #HITLOG_DEMO
+    local STAGGER = 0.18
+    local span = 1 + STAGGER * (n - 1)
+    local cyTop = y
+    local lx, rx, ty, by2 = 1 / 0, -1 / 0, 1 / 0, -1 / 0
+    for i = 1, n do
+        local d = HITLOG_DEMO[i]
+        local e = easeOutCubic(reveal * span - (i - 1) * STAGGER)
+        if e > 0.004 then
+            local slide = (1 - e) * 10
+            local ry = cyTop + (i - 1) * (rowH + gap) + slide
+            local boxW = row(d.kind, d.label, x, ry, e)
+            if x - boxW / 2 < lx then lx = x - boxW / 2 end
+            if x + boxW / 2 > rx then rx = x + boxW / 2 end
+            if ry < ty then ty = ry end
+            if ry + rowH > by2 then by2 = ry + rowH end
+        end
+    end
+
+    if by2 > ty then
+        hl._rect = { x = lx, y = ty, w = rx - lx, h = by2 - ty }
+        ALPHA = reveal
+        local hint = "preview · drag to move"
+        text(x + 1, by2 + 7, { 0, 0, 0, 235 }, hint, FONT, "center")
+        text(x, by2 + 6, T.texthi, hint, FONT, "center")
+        ALPHA = 1
+    end
+end
+
+function M:_drawHitlog()
+    local hl = self._hitlog
+    if not hl.enabled then return end
+
+    local sw, sh = 0, 0
+    pcall(function() sw, sh = draw.GetScreenSize() end)
+    if sw == 0 then return end
+    local cx, cy = sw / 2, sh / 2
+
+    pcall(function() draw.SetFont(FONT) end)
+    local padX, padY, dotR, dotGap = 11, 5, 3, 8
+
+    local txtH = floor((hl.font_size or T.font_size) + 0.5)
+    pcall(function() local _, h = draw.GetTextSize("Ayg"); if h and h > 4 then txtH = floor(h + 0.5) end end)
+    local rowH = txtH + padY * 2
+    local gap  = 6
+
+    local function row(kind, label, px, by, a)
+        local col  = hl.colors[kind] or hl.colors.hit or T.accent
+        local boxW = floor(padX * 2 + dotR * 2 + dotGap + textw(label) + 0.5)
+        local bx   = floor(px - boxW / 2 + 0.5)
+        by         = floor(by + 0.5)
+        ALPHA = a
+        local fill = lerpc(T.section, { col[1], col[2], col[3], 255 }, 0.12)
+        local brd  = lerpc(T.border,  { col[1], col[2], col[3], 255 }, 0.45)
+        rbox(bx, by, boxW, rowH, 6, fill, brd)
+
+        rfill(bx + 2, by + 4, 2, rowH - 8, 1, col)
+
+        local dcy = by + floor((rowH - dotR * 2) / 2 + 0.5)
+        rfill(bx + padX, dcy, dotR * 2, dotR * 2, dotR, col)
+        text(bx + padX + dotR * 2 + dotGap, by + padY, T.texthi, label, FONT)
+        ALPHA = 1
+        return boxW
+    end
+
+    local reveal = self._t or 0
+
+    if reveal > 0.02 then
+        if self._open ~= false then
+            hitlogEdit(hl, sw, sh, cx, cy, rowH, gap, reveal, row)
+        else
+
+            local x, y = hitlogPos(hl, sw, sh)
+            local n = #HITLOG_DEMO
+            local cyTop = y
+            for i = 1, n do
+                local d = HITLOG_DEMO[i]
+                local e = easeOutCubic(reveal)
+                if e > 0.004 then row(d.kind, d.label, x, cyTop + (i - 1) * (rowH + gap), e) end
+            end
+        end
+        return
+    end
+
+    local q = hl.queue
+    local life, fadeIn, fadeOut = hl.life, hl.fade_in, hl.fade_out
+    local i = 1
+    while i <= #q do
+        if (now() - q[i].born) >= life + fadeOut + 0.05 then table.remove(q, i)
+        else i = i + 1 end
+    end
+    if #q == 0 then return end
+
+    local px, py = hitlogPos(hl, sw, sh)
+    local n = #q
+    local cyTop = py
+    for k = 1, n do
+        local e   = q[k]
+        local age = now() - e.born
+        local inE  = smoother(clamp(age / fadeIn, 0, 1))
+        local outE = smoother(clamp((age - life) / fadeOut, 0, 1))
+        local a    = inE * (1 - outE)
+        if a > 0.004 then
+            local rowY = cyTop + (n - k) * (rowH + gap) + (1 - inE) * 14
+            row(e.kind, hitlogLabel(e), px, rowY, a)
+        end
+    end
+end
+
+local function killMiscWatermark()
+    for _, k in ipairs(WM_MISC_KEYS) do
+        pcall(function()
+            local v = gui.GetValue(k)
+            if v == true or v == 1 then gui.SetValue(k, false) end
+        end)
+    end
+end
+
+function M:_drawWatermark()
+    local wm = self._watermark
+    if not wm.enabled then return end
+
+    if DT and DT > 0 then
+        local inst = 1 / DT
+        wm._fps = wm._fps > 0 and (wm._fps + (inst - wm._fps) * 0.12) or inst
+    end
+
+    local t = now()
+    if t - (wm._killTry or -1) > 1 then wm._killTry = t; killMiscWatermark() end
+
+    local function nameSeg(s)
+        s = tostring(s or "")
+        local dot
+        for i = #s, 2, -1 do if s:sub(i, i) == "." then dot = i; break end end
+        if dot and dot >= 2 and dot < #s then
+            return { { s:sub(1, dot - 1), T.texthi, FONT_LOGO }, { s:sub(dot), T.accent, FONT_LOGO } }
+        end
+        return { { s, T.texthi, FONT_LOGO } }
+    end
+
+    local segs = {}
+    if wm.parts.cheat then segs[#segs + 1] = nameSeg(wm.cheat_name or "AIMWARE.NET") end
+    if wm.parts.lua   then segs[#segs + 1] = nameSeg(wm.lua_name or "TAP.CC") end
+    if wm.parts.user  then segs[#segs + 1] = { { tostring(wm.user or "?"), T.text, FONT } } end
+    if wm.parts.nick  then segs[#segs + 1] = { { tostring(wm.nick or "?"), T.text, FONT } } end
+    if wm.parts.fps   then segs[#segs + 1] = { { floor(wm._fps + 0.5) .. " fps", T.text, FONT } } end
+    if wm.parts.ping  then
+        segs[#segs + 1] = { { (wm.ping and (floor(wm.ping + 0.5) .. " ms") or "- ms"), T.text, FONT } }
+    end
+    if #segs == 0 then return end
+
+    local sw, sh = 0, 0
+    pcall(function() sw, sh = draw.GetScreenSize() end)
+    if sw == 0 then return end
+
+    local PADX, PADY, DIVPAD = 11, 6, 9
+    local function runW(run)
+        if run[3] then pcall(function() draw.SetFont(run[3]) end) end
+        return textw(run[1])
+    end
+
+    local totalW = PADX * 2
+    for si, seg in ipairs(segs) do
+        if si > 1 then totalW = totalW + DIVPAD * 2 + 1 end
+        for _, run in ipairs(seg) do totalW = totalW + runW(run) end
+    end
+
+    local txtH = T.font_size
+    pcall(function() draw.SetFont(FONT) end)
+    pcall(function() local _, h = draw.GetTextSize("Ayg"); if h and h > 4 then txtH = floor(h + 0.5) end end)
+    local barH = txtH + PADY * 2
+
+    local margin = 14
+    local pos    = wm.pos or "top-right"
+    local right  = pos:find("right") ~= nil
+    local bottom = pos:find("bottom") ~= nil
+    local bx = right  and (sw - margin - totalW) or margin
+    local by = bottom and (sh - margin - barH)   or margin
+
+    ALPHA = 1
+    rbox(bx, by, totalW, barH, 6, T.section, T.border)
+    rfill(bx, by, totalW, 2, 6, T.accent, true, true, false, false)
+
+    local cx = bx + PADX
+    local ty = by + PADY
+    for si, seg in ipairs(segs) do
+        if si > 1 then
+            rect(cx + DIVPAD, by + 6, 1, barH - 12, T.divider)
+            cx = cx + DIVPAD * 2 + 1
+        end
+        for _, run in ipairs(seg) do
+            text(cx, ty, run[2], run[1], run[3])
+            cx = cx + textw(run[1])
+        end
+    end
+end
+
+local function tabLayout(tabs, win)
+    pcall(function() draw.SetFont(FONT_LOGO) end)
+    local startX = win.x + 16 + textw(T.title) + textw(T.title_tld) + 14
+    pcall(function() draw.SetFont(FONT) end)
+    local pos, tx = {}, startX
+    for i, t in ipairs(tabs) do
+        local tw = textw(t.name) + 28
+        pos[i] = { x = tx, w = tw }
+        tx = tx + tw
+    end
+    return pos
+end
+
+function M:_tabInput(win)
+    local pos = tabLayout(self._tabs, win)
+    for i, p in ipairs(pos) do
+        if clicked(p.x, win.y, p.w, T.titlebar) and self._active ~= i then
+            self._active = i; M._combo = nil; self._tabT = 0
+        end
+    end
+end
+
+function M:_drawTabBar(win)
+    text(win.x + 16, win.y + 17, T.texthi, T.title, FONT_LOGO)
+    local logoW = textw(T.title)
+    text(win.x + 16 + logoW, win.y + 17, T.accent, T.title_tld, FONT_LOGO)
+    local pos = tabLayout(self._tabs, win)
+
+    local act = pos[self._active]
+    local tgtX, tgtW = act and act.x or win.x, act and act.w or 0
+    local relX = tgtX - win.x
+    if not self._pillX then self._pillX, self._pillW = relX, tgtW end
+    self._pillX = approach(self._pillX, relX, 16)
+    self._pillW = approach(self._pillW, tgtW, 16)
+    rfill(win.x + self._pillX + 3, win.y + 9, self._pillW - 6, T.titlebar - 18, 5, T.accent_bg)
+
+    for i, t in ipairs(self._tabs) do
+        local p = pos[i]
+        local active = (i == self._active)
+        local hov = hovering(p.x, win.y, p.w, T.titlebar)
+        t._h = approach(t._h or 0, (active or hov) and 1 or 0, 16)
+        text(p.x + p.w / 2, win.y + 16, lerpc(T.textdim, T.texthi, t._h), t.name, FONT, "center")
+    end
+end
+
+local DD_ITEMH, DD_MAXVIS = 22, 9
+
+function M:_dropdownInput()
+    if not M._combo or not M._dd or M._dd.wd ~= M._combo then return end
+    local d, wd = M._dd, M._dd.wd
+    local n = #wd.options
+    local visible = mmin(n, DD_MAXVIS)
+    local listH = visible * DD_ITEMH
+    local maxScroll = mmax(0, n - visible)
+    wd._ddScroll = clamp(wd._ddScroll or 0, 0, maxScroll)
+
+    if (ms.wheel or 0) ~= 0 and hovering(d.x, d.y, d.w, listH) then
+        wd._ddScroll = clamp(wd._ddScroll - (ms.wheel > 0 and 1 or -1), 0, maxScroll)
+        ms.wheel = 0
+    end
+
+    if maxScroll > 0 then
+        local trackX = d.x + d.w - 7
+        if ms.pressed and not ms.consumed and hovering(trackX - 2, d.y, 10, listH) then
+            ms.consumed = true; M._ddScrollbar = wd
+        end
+        if M._ddScrollbar == wd then
+            if ms.down then wd._ddScroll = rnd(clamp((ms.y - d.y) / listH, 0, 1) * maxScroll)
+            else M._ddScrollbar = nil end
+            return
+        end
+    end
+
+    if not ms.pressed or ms.consumed then return end
+    if hovering(d.x, d.y, d.w, listH) then
+        for vi = 0, visible - 1 do
+            if hovering(d.x, d.y + vi * DD_ITEMH, d.w, DD_ITEMH) then
+                local i = vi + 1 + floor(wd._ddScroll)
+                if i <= n then
+                    if wd.kind == "multicombo" then wd.value[i] = not wd.value[i] or nil
+                    else wd.value = i; M._combo = nil end
+                end
+                break
+            end
+        end
+        ms.consumed = true
+    elseif not hovering(d.x, d.y - d.bh, d.w, d.bh) then
+        M._combo = nil
+    end
+end
+
+function M:_drawDropdown()
+    if not M._combo or not M._dd or M._dd.wd ~= M._combo then return end
+    local d, wd = M._dd, M._dd.wd
+    local multi = (wd.kind == "multicombo")
+    local n = #wd.options
+    local visible = mmin(n, DD_MAXVIS)
+    local listH = visible * DD_ITEMH
+    local maxScroll = mmax(0, n - visible)
+    local scroll = clamp(wd._ddScroll or 0, 0, maxScroll)
+    local hasBar = maxScroll > 0
+    local iw = hasBar and (d.w - 9) or d.w
+    rbox(d.x, d.y, d.w, listH, 5, T.widget, T.accent)
+    for vi = 0, visible - 1 do
+        local i = vi + 1 + floor(scroll)
+        if i <= n then
+            local opt = wd.options[i]
+            local iy = d.y + vi * DD_ITEMH
+            local sel = multi and wd.value[i] or (not multi and wd.value == i)
+            local hov = hovering(d.x, iy, iw, DD_ITEMH)
+            if hov then rect(d.x + 1, iy, iw - 2, DD_ITEMH, T.widgethi) end
+            if multi then
+                rbox(d.x + 8, iy + 5, 12, 12, 3, sel and T.accent or T.widget, sel and T.accent or T.border)
+                text(d.x + 26, iy + 5, (sel or hov) and T.texthi or T.text, opt, FONT)
+            else
+                if sel then rect(d.x + 1, iy, 3, DD_ITEMH, T.accent) end
+                text(d.x + 9, iy + 5, (sel or hov) and T.texthi or T.text, opt, FONT)
+            end
+        end
+    end
+    if hasBar then
+        local trackX = d.x + d.w - 6
+        local thumbH = mmax(20, listH * visible / n)
+        local thumbY = d.y + (listH - thumbH) * (scroll / maxScroll)
+        rfill(trackX, d.y + 2, 4, listH - 4, 2, T.widget)
+        rfill(trackX, thumbY, 4, thumbH, 2, T.accent)
+    end
+end
+
+local CP = { pad = 12, svW = 138, svH = 128, barW = 14, gap = 10, sw = 22, sgap = 6, slots = 5 }
+local function cpWidth()  return CP.pad * 2 + CP.svW + CP.gap * 2 + CP.barW * 2 end
+local function cpHeight() return CP.pad * 2 + CP.svH + 52 end
+
+function M:_cpInput()
+    if not M._cp or not M._cpRect then return end
+    if not ms.pressed or ms.consumed then return end
+    local r = M._cpRect
+    if hovering(r.x, r.y, cpWidth(), cpHeight()) then ms.consumed = true
+    elseif not hovering(r.sx, r.sy, r.sw, r.sh) then M._cp = nil end
+end
+
+function M:_cpDraw()
+    if not M._cp or not M._cpRect then return end
+    local wd, r = M._cp, M._cpRect
+    if not wd._hsv then wd._hsv = { rgb2hsv(wd.value[1], wd.value[2], wd.value[3]) } end
+    local hsv = wd._hsv
+    local w = cpWidth()
+
+    if self._win then r.x = mmin(r.x, self._win.x + self._win.w - w - 6) end
+
+    rbox(r.x, r.y, w, cpHeight(), 6, T.section, T.accent)
+    local svX, svY, svW, svH = r.x + CP.pad, r.y + CP.pad, CP.svW, CP.svH
+    local hueX   = svX + svW + CP.gap
+    local alphaX = hueX + CP.barW + CP.gap
+
+    if ms.pressed and not M._cpDrag then
+        if hovering(svX, svY, svW, svH) then M._cpDrag = "sv"
+        elseif hovering(hueX, svY, CP.barW, svH) then M._cpDrag = "hue"
+        elseif hovering(alphaX, svY, CP.barW, svH) then M._cpDrag = "alpha" end
+    end
+    if M._cpDrag then
+        if ms.down then
+            if M._cpDrag == "sv" then
+                hsv[2] = clamp((ms.x - svX) / svW, 0, 1)
+                hsv[3] = clamp(1 - (ms.y - svY) / svH, 0, 1)
+            elseif M._cpDrag == "hue" then
+                hsv[1] = clamp((ms.y - svY) / svH, 0, 1)
+            elseif M._cpDrag == "alpha" then
+                wd.value[4] = rnd(clamp(1 - (ms.y - svY) / svH, 0, 1) * 255)
+            end
+        else M._cpDrag = nil end
+    end
+
+    M._swatches = M._swatches or {}
+    local sy   = svY + svH + 28
+    local addX = svX
+    local addHov = hovering(addX, sy, CP.sw, CP.sw)
+    local pre = { hsv2rgb(hsv[1], hsv[2], hsv[3]) }
+    if ms.pressed and addHov then
+        table.insert(M._swatches, 1, { pre[1], pre[2], pre[3], wd.value[4] or 255 })
+        while #M._swatches > CP.slots do table.remove(M._swatches) end
+    end
+    for i = 1, CP.slots do
+        local c = M._swatches[i]
+        local cxs = addX + i * (CP.sw + CP.sgap)
+        if c and ms.pressed and hovering(cxs, sy, CP.sw, CP.sw) then
+            hsv[1], hsv[2], hsv[3] = rgb2hsv(c[1], c[2], c[3])
+            wd.value[4] = c[4] or 255
+        end
+    end
+
+    local h, s, v = hsv[1], hsv[2], hsv[3]
+    local cr, cg, cb = hsv2rgb(h, s, v)
+    local av = wd.value[4] or 255
+
+    local hr, hg, hb = hsv2rgb(h, 1, 1)
+    rect(svX, svY, svW, svH, { hr, hg, hb })
+    for dx = 0, svW - 1, 2 do
+        rect(svX + dx, svY, 2, svH, { 255, 255, 255, 255 * (1 - dx / svW) })
+    end
+    for dy = 0, svH - 1, 2 do
+        rect(svX, svY + dy, svW, 2, { 0, 0, 0, 255 * (dy / svH) })
+    end
+    frame(svX, svY, svW, svH, T.border)
+    local cxp = svX + clamp(s, 0, 1) * svW
+    local cyp = svY + (1 - clamp(v, 0, 1)) * svH
+    rbox(cxp - 5, cyp - 5, 10, 10, 5, { cr, cg, cb }, { 255, 255, 255 })
+
+    for dy = 0, svH - 1, 2 do
+        rect(hueX, svY + dy, CP.barW, 2, { hsv2rgb(dy / svH, 1, 1) })
+    end
+    frame(hueX, svY, CP.barW, svH, T.border)
+    rfill(hueX - 2, svY + clamp(h, 0, 1) * svH - 2, CP.barW + 4, 4, 1, { 255, 255, 255 })
+
+    rect(alphaX, svY, CP.barW, svH, T.widget)
+    for dy = 0, svH - 1, 2 do
+        rect(alphaX, svY + dy, CP.barW, 2, { cr, cg, cb, 255 * (1 - dy / svH) })
+    end
+    frame(alphaX, svY, CP.barW, svH, T.border)
+    rfill(alphaX - 2, svY + (1 - av / 255) * svH - 2, CP.barW + 4, 4, 1, { 255, 255, 255 })
+
+    wd.value[1], wd.value[2], wd.value[3] = cr, cg, cb
+    local ty = svY + svH + 6
+    text(svX, ty, T.textdim, string.format("R %d  G %d  B %d  A %d", cr, cg, cb, av), FONT)
+
+    rbox(addX, sy, CP.sw, CP.sw, 4, addHov and T.widgethi or T.widget, T.border)
+    text(addX + CP.sw / 2, sy + 3, addHov and T.texthi or T.textdim, "+", FONT, "center")
+    for i = 1, CP.slots do
+        local c = M._swatches[i]
+        local cxs = addX + i * (CP.sw + CP.sgap)
+        rbox(cxs, sy, CP.sw, CP.sw, 4, c and { c[1], c[2], c[3], 255 } or T.bg2, T.border)
+    end
+end
+
+function M:_drag(win)
+    if ms.pressed and not ms.consumed and hovering(win.x, win.y, win.w, T.titlebar) then
+        ms.consumed = true
+        self._dragWin = { dx = ms.x - win.x, dy = ms.y - win.y }
+    end
+    if self._dragWin then
+        if ms.down then win.x = ms.x - self._dragWin.dx; win.y = ms.y - self._dragWin.dy
+        else self._dragWin = nil end
+    end
+end
+
+function M:_frame()
+    local real = self._win
+    local tab = self._tabs[self._active]
+
+    local contentH = 0
+    if tab then pcall(function() contentH = tabContentHeight(tab) end) end
+    local chrome = T.titlebar + T.pad * 2
+
+    if self._autoH then
+        local screenH = 1080
+        pcall(function() local sw; sw, screenH = draw.GetScreenSize() end)
+        local targetH = clamp(contentH + chrome, 220, (screenH or 1080) - 60)
+        real.h = real.h + (targetH - real.h) * clamp(DT * 14, 0, 1)
+    end
+
+    local ease = smooth(self._t)
+    ALPHA = ease
+    local oy = (1 - ease) * 14
+    local win = { x = real.x, y = real.y - oy, w = real.w, h = real.h }
+
+    rbox(win.x, win.y, win.w, win.h, 7, T.bg, T.border)
+    rfill(win.x + 1, win.y + T.titlebar, win.w - 2, win.h - T.titlebar - 1, 6, T.bg2, false, false, true, true)
+
+    self:_tabInput(win)
+    self:_drag(win)
+    self:_dropdownInput()
+    self:_cpInput()
+
+    local availH = win.h - chrome
+    local maxScroll = mmax(0, contentH - availH)
+    self._scroll = clamp(self._scroll or 0, 0, maxScroll)
+
+    local tabEase = smooth(self._tabT)
+    local cx = win.x + T.pad + (1 - tabEase) * 18
+    local cy = win.y + T.titlebar + T.pad - self._scroll
+    local cw = win.w - T.pad * 2
+    clipTop, clipBottom = win.y + T.titlebar, win.y + win.h
+    if tab then
+        local ok, err = pcall(function() tab:render(cx, cy, cw) end)
+        if not ok then print("[femboytap] tab '" .. tostring(tab.name) .. "' error: " .. tostring(err)) end
+    end
+    clipTop, clipBottom = nil, nil
+
+    if maxScroll > 0 and (ms.wheel or 0) ~= 0 and hovering(win.x, win.y + T.titlebar, win.w, win.h - T.titlebar) then
+        self._scroll = clamp(self._scroll - (ms.wheel > 0 and 36 or -36), 0, maxScroll)
+        ms.wheel = 0
+    end
+
+    rfill(win.x + 1, win.y + 1, win.w - 2, T.titlebar - 1, 6, T.bg, true, true, false, false)
+    rfill(win.x, win.y, win.w, 2, 7, T.accent, true, true, false, false)
+    rect(win.x + 1, win.y + T.titlebar, win.w - 2, 1, T.border)
+    self:_drawTabBar(win)
+
+    if maxScroll > 0 then
+        local th = mmax(20, (availH / contentH) * availH)
+        local ty = win.y + T.titlebar + (availH - th) * (self._scroll / maxScroll)
+        rfill(win.x + win.w - 6, win.y + T.titlebar + 2, 3, availH - 4, 1, T.widget)
+        rfill(win.x + win.w - 6, ty, 3, th, 1, T.accent)
+    end
+
+    self:_drawDropdown()
+    self:_cpDraw()
+
+    if M._focus and ms.pressed and not ms.consumed then M._focus = nil end
+
+    real.x = win.x
+    real.y = win.y + oy
+end
+
+function M:OpenFolder()
+    pcall(function()
+        ffi.cdef[[ int ShellExecuteA(void*, const char*, const char*, const char*, const char*, int); ]]
+    end)
+    pcall(function()
+        local shell = ffi.load("shell32")
+        shell.ShellExecuteA(nil, "open", M._dir or ".", nil, nil, 1)
+    end)
+end
+
+function M:_initScreen()
+    local win = self._win
+    ALPHA = smooth(self._t)
+    rbox(win.x, win.y, win.w, win.h, 7, T.bg, T.border)
+    rfill(win.x, win.y, win.w, 2, 7, T.accent, true, true, false, false)
+    local dots = string.rep(".", floor(now() * 2) % 4)
+    text(win.x + win.w / 2, win.y + win.h / 2 - 12, T.texthi, "Initialization in progress" .. dots, FONT_B, "center")
+    text(win.x + win.w / 2, win.y + win.h / 2 + 12, T.textdim, "fetching fonts, please wait", FONT, "center")
+end
+
+function M:Build(opts)
+    opts = opts or {}
+    if opts.w then self._win.w = opts.w end
+    if opts.h then self._win.h = opts.h end
+    if opts.x then self._win.x = opts.x end
+    if opts.y then self._win.y = opts.y end
+    self._autoH = (opts.h == nil)
+
+    _getMouse = resolveMouse()
+    _getWheel = resolveWheel()
+    _clock    = resolveClock()
+    initFonts()
+    self._initco = coroutine.create(fontInitCoro)
+    if not _getMouse then print("[femboytap] WARNING: mouse position API not found -- cursor won't track") end
+
+    local menuRef
+    pcall(function() menuRef = gui.Reference("MENU") end)
+
+    callbacks.Register("Draw", function()
+        local open = true
+        if menuRef then pcall(function() open = menuRef:IsActive() end) end
+        self._open = open
+        if not open then self._focus = nil; self._inputDrag = nil end
+
+        local t  = now()
+        local dt = 1
+        if _clock then dt = self._last and clamp(t - self._last, 0, 0.1) or 0 end
+        self._last = t
+        DT = dt
+
+        self._t    = self._t    + ((open and 1 or 0) - self._t) * clamp(dt * ANIM.open, 0, 1)
+        self._tabT = self._tabT + (1 - self._tabT)              * clamp(dt * ANIM.tab,  0, 1)
+
+        if self._initco then
+            pcall(function()
+                if coroutine.status(self._initco) ~= "dead" then coroutine.resume(self._initco) end
+            end)
+            if coroutine.status(self._initco) == "dead" then self._initco = nil end
+            pcall(function() self:_initScreen() end)
+            return
+        end
+
+        updateMouse()
+        pcall(function() self:_drawToasts() end)
+        pcall(function() self:_drawHitlog() end)
+        pcall(function() self:_drawWatermark() end)
+
+        ALPHA = 1
+        for _, fn in ipairs(self._onframe) do pcall(fn, UI) end
+
+        if not open and self._t < 0.005 then self._t = 0; return end
+
+        local ok, err = pcall(function() self:_frame() end)
+        if not ok then print("[femboytap] frame error: " .. tostring(err)) end
+    end)
+
+    pcall(function() callbacks.Register("CreateMove", function(cmd)
+        if not (M._open and M._focus) or not cmd then return end
+        pcall(function() cmd.forwardmove = 0 end)
+        pcall(function() cmd.sidemove = 0 end)
+        pcall(function() cmd.upmove = 0 end)
+        pcall(function() cmd.buttons = 0 end)
+        pcall(function() cmd:SetForwardMove(0) end)
+        pcall(function() cmd:SetSideMove(0) end)
+        pcall(function() cmd:SetUpMove(0) end)
+        pcall(function() cmd:SetButtons(0) end)
+    end) end)
+
+    print(string.format("[femboytap.cc] guilib v%s ready: %d tabs, mouse=%s clock=%s",
+        tostring(M.VERSION), #self._tabs, _getMouse and "ok" or "NIL", _clock and "ok" or "NIL"))
+    return self
+end
+
+return M
