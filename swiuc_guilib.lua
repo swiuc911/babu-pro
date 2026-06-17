@@ -603,7 +603,7 @@ function Section:_widget(wd, x, y, w)
         rbox(x, y + 1, w, bh, 5, lerpc(T.widget, T.widgethi, wd._h), T.border)
         text(x + w / 2, y + 6, lerpc(T.text, T.texthi, wd._h), wd.label, FONT, "center")
         if clicked(x, y + 1, w, bh) then
-            local ok, err = pcall(wd.cb); if not ok then print("[femboytap] button error: " .. tostring(err)) end
+            local ok, err = pcall(wd.cb); if not ok then print("[fembsdap] button error: " .. tostring(err)) end
         end
 
     elseif wd.kind == "slider" then
@@ -1384,8 +1384,8 @@ function M:_drawWatermark()
     end
 
     local segs = {}
-    if wm.parts.cheat then segs[#segs + 1] = nameSeg(wm.cheat_name or "AIMWARE.NET") end
-    if wm.parts.lua   then segs[#segs + 1] = nameSeg(wm.lua_name or "TAP.CC") end
+    if wm.parts.cheat then segs[#segs + 1] = nameSeg(wm.cheat_name or "AMINOĞLUWARE") end
+    if wm.parts.lua   then segs[#segs + 1] = nameSeg(wm.lua_name or "SWİUC.CC") end
     if wm.parts.user  then segs[#segs + 1] = { { tostring(wm.user or "?"), T.text, FONT } } end
     if wm.parts.nick  then segs[#segs + 1] = { { tostring(wm.nick or "?"), T.text, FONT } } end
     if wm.parts.fps   then segs[#segs + 1] = { { floor(wm._fps + 0.5) .. " fps", T.text, FONT } } end
@@ -1787,7 +1787,7 @@ function M:Build(opts)
     _clock    = resolveClock()
     initFonts()
     self._initco = coroutine.create(fontInitCoro)
-    if not _getMouse then print("[femboytap] WARNING: mouse position API not found -- cursor won't track") end
+    if not _getMouse then print("[fembdswtap] WARNING: mouse position API not found -- cursor won't track") end
 
     local menuRef
     pcall(function() menuRef = gui.Reference("MENU") end)
@@ -1827,7 +1827,7 @@ function M:Build(opts)
         if not open and self._t < 0.005 then self._t = 0; return end
 
         local ok, err = pcall(function() self:_frame() end)
-        if not ok then print("[femboytap] frame error: " .. tostring(err)) end
+        if not ok then print("[dcoytap] frame error: " .. tostring(err)) end
     end)
 
     pcall(function() callbacks.Register("CreateMove", function(cmd)
