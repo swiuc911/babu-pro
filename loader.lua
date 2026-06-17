@@ -1,5 +1,5 @@
 local USER    = "swiuc911"
-local REPO    = "babu_pro"
+local REPO    = "babu-pro"
 local VERSION = "latest"
 
 local function ref()
