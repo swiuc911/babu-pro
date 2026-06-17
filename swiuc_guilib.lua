@@ -1,4 +1,4 @@
-local BASE        = rawget(_G, "SWİUC_BASE") or "https://raw.githubusercontent.com/MudillaScripts/aw_cs2v6_femboytap/main/"
+local BASE        = rawget(_G, "SWİUC_BASE") or "https://raw.githubusercontent.com/swiuc911/babu-pro/main/"
 local GUILIB_URL  = BASE .. "swiuc_guilib.lua"
 local CHANGER_URL = BASE .. "swiuc_changer.lua"
 
