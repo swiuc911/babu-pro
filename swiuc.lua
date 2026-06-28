@@ -1014,19 +1014,32 @@ local vtab = M:Tab("Visuals")
 local submodels = vtab:Sub("Models")
 submodels:Row()
 local vSec = submodels:Section("List")
-local mNames
+
+local mNames, mNamesAll, modelPathsAll
 mNames, modelPaths = C.modelList()
+mNamesAll    = mNames
+modelPathsAll = modelPaths
+
+-- Search input
+local modelSearch = vSec:Input("Search", "", "search models...")
+local modelSearchWd = vSec.ws[#vSec.ws]
+
+-- Listbox
 modelLb = vSec:Listbox("", mNames, "fill", 1)
 modelWd = vSec.ws[#vSec.ws]
+
 submodels:Col()
 local vSsec = submodels:Section("Settings")
 vSsec:Button("Refresh models", function()
     local cur = C.getLocalModel()
     local n, p = C.refreshModels()
+    modelPathsAll  = p
+    mNamesAll      = n
     modelPaths     = p
     modelWd.items  = n
     modelWd.value  = 1
     modelWd.scroll = 0
+    modelSearchWd.value = ""
     if cur then
         for i = 2, #p do if p[i] == cur then modelWd.value = i; break end end
     end
@@ -1516,6 +1529,40 @@ M:OnFrame(function()
     pcall(syncSkins)
     pcall(autoApply)
     pcall(persistOpts)
+
+    -- Model search filtresi
+    pcall(function()
+        if not modelSearchWd or not modelWd then return end
+        local query = modelSearchWd.value:lower()
+        if query == (modelSearchWd._lastQuery or "") then return end
+        modelSearchWd._lastQuery = query
+        if query == "" then
+            modelWd.items  = mNamesAll
+            modelPaths     = modelPathsAll
+            modelWd.value  = 1
+            modelWd.scroll = 0
+            lastModelSel   = -1
+            return
+        end
+        local filteredNames = {}
+        local filteredPaths = {}
+        for i, name in ipairs(mNamesAll) do
+            if name:lower():find(query, 1, true) then
+                filteredNames[#filteredNames + 1] = name
+                filteredPaths[#filteredPaths + 1] = modelPathsAll[i]
+            end
+        end
+        if #filteredNames == 0 then
+            filteredNames[1] = "[ no results ]"
+            filteredPaths[1] = nil
+        end
+        modelWd.items  = filteredNames
+        modelPaths     = filteredPaths
+        modelWd.value  = 1
+        modelWd.scroll = 0
+        lastModelSel   = -1
+    end)
+
     pcall(syncModel)
     pcall(syncVm)
     pcall(HS.missTick)
