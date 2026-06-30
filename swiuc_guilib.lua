@@ -1,39 +1,32 @@
-local M = {}
-M.VERSION = "1.0"
-
 local T = {
     x = 360, y = 200, w = 600, h = 440,
-
-    accent    = { 139, 124, 246 },
-    accent_bg = { 40, 36, 64, 255 },
-    bg        = { 20, 20, 26, 255 },
-    bg2       = { 15, 15, 20, 255 },
-    section   = { 25, 25, 32, 255 },
-    border    = { 44, 44, 56, 255 },
-    divider   = { 36, 36, 46, 255 },
-    text      = { 188, 188, 198, 255 },
-    textdim   = { 112, 112, 126, 255 },
-    texthi    = { 240, 240, 245, 255 },
-    widget    = { 33, 33, 42, 255 },
-    widgethi  = { 45, 45, 57, 255 },
-
+    accent    = { 255, 255, 255 },
+    accent_bg = { 235, 235, 235, 255 },
+    bg        = { 250, 250, 250, 255 },
+    bg2       = { 242, 242, 242, 255 },
+    section   = { 255, 255, 255, 255 },
+    border    = { 220, 220, 220, 255 },
+    divider   = { 228, 228, 228, 255 },
+    text      = { 60, 60, 65, 255 },
+    textdim   = { 140, 140, 148, 255 },
+    texthi    = { 10, 10, 12, 255 },
+    widget    = { 245, 245, 245, 255 },
+    widgethi  = { 230, 230, 235, 255 },
     title     = "discord.gg",
     title_tld = "/dadav",
     titlebar  = 44,
     pad       = 14,
     sec_gap   = 12,
-
     font      = { "Oxanium", "Space Grotesk", "Varela Round", "Tahoma", "Verdana" },
     font_logo = { "Space Grotesk", "Oxanium", "Tahoma" },
     font_size = 14,
-
     notif_pos    = "bottom-right",
     notif_w      = 290,
     notif_margin = 18,
     notif_life   = 3.5,
-    notif_info    = { 139, 124, 246 },
-    notif_success = { 80, 200, 120 },
-    notif_error   = { 235, 90, 90 },
+    notif_info    = { 90, 90, 90 },
+    notif_success = { 60, 170, 100 },
+    notif_error   = { 220, 70, 70 },
 }
 
 local WH = { check = 28, button = 36, slider = 36, combo = 52, multicombo = 52, input = 52, color = 28 }
