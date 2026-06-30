@@ -3,7 +3,7 @@ M.VERSION = "1.0"
 local T = {
     x = 360, y = 200, w = 600, h = 440,
     accent    = { 240, 165, 195, 255 },
-    accent_bg = { 50, 50, 50, 255 },
+    accent_bg = { 85, 85, 85, 255 },
     bg      = { 108, 122, 196, 255 },   -- ana arkaplan, periwinkle mavi
     bg2     = { 118, 132, 206, 255 },   -- ikincil arkaplan, biraz daha açık
     section = { 100, 114, 188, 255 },   -- bölüm arkaplanı
