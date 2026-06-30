@@ -1,7 +1,9 @@
+local M = {}
+M.VERSION = "1.0"
 local T = {
     x = 360, y = 200, w = 600, h = 440,
-    accent    = { 120, 105, 200, 255 },
-    accent_bg = { 226, 222, 235, 255 },
+    accent    = { 64, 170, 190, 255 },
+    accent_bg = { 210, 232, 235, 255 },
     bg        = { 232, 231, 228, 255 },
     bg2       = { 224, 223, 220, 255 },
     section   = { 238, 237, 234, 255 },
@@ -24,11 +26,10 @@ local T = {
     notif_w      = 290,
     notif_margin = 18,
     notif_life   = 3.5,
-    notif_info    = { 120, 105, 200 },
+    notif_info    = { 64, 170, 190 },
     notif_success = { 60, 150, 90 },
     notif_error   = { 200, 70, 70 },
 }
-
 local WH = { check = 28, button = 36, slider = 36, combo = 52, multicombo = 52, input = 52, color = 28 }
 local function wheight(wd)
     if wd.kind == "listbox" then
