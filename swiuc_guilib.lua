@@ -1,19 +1,17 @@
-local M = {}
-M.VERSION = "1.0"
 local T = {
     x = 360, y = 200, w = 600, h = 440,
-    accent    = { 130, 110, 245, 255 },
-    accent_bg = { 235, 232, 248, 255 },
-    bg        = { 255, 255, 255, 255 },
-    bg2       = { 250, 250, 250, 255 },
-    section   = { 255, 255, 255, 255 },
-    border    = { 225, 225, 230, 255 },
-    divider   = { 232, 232, 236, 255 },
-    text      = { 70, 70, 78, 255 },
-    textdim   = { 150, 150, 158, 255 },
-    texthi    = { 15, 15, 20, 255 },
-    widget    = { 247, 247, 249, 255 },
-    widgethi  = { 235, 235, 240, 255 },
+    accent    = { 120, 105, 200, 255 },
+    accent_bg = { 226, 222, 235, 255 },
+    bg        = { 232, 231, 228, 255 },
+    bg2       = { 224, 223, 220, 255 },
+    section   = { 238, 237, 234, 255 },
+    border    = { 206, 205, 200, 255 },
+    divider   = { 214, 213, 208, 255 },
+    text      = { 80, 79, 76, 255 },
+    textdim   = { 145, 144, 140, 255 },
+    texthi    = { 30, 29, 27, 255 },
+    widget    = { 222, 221, 217, 255 },
+    widgethi  = { 210, 209, 204, 255 },
     title     = "discord.gg",
     title_tld = "/dadav",
     titlebar  = 44,
@@ -26,10 +24,11 @@ local T = {
     notif_w      = 290,
     notif_margin = 18,
     notif_life   = 3.5,
-    notif_info    = { 130, 110, 245 },
-    notif_success = { 60, 170, 100 },
-    notif_error   = { 220, 70, 70 },
+    notif_info    = { 120, 105, 200 },
+    notif_success = { 60, 150, 90 },
+    notif_error   = { 200, 70, 70 },
 }
+
 local WH = { check = 28, button = 36, slider = 36, combo = 52, multicombo = 52, input = 52, color = 28 }
 local function wheight(wd)
     if wd.kind == "listbox" then
