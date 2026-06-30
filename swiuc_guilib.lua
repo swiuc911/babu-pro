@@ -1,17 +1,19 @@
+local M = {}
+M.VERSION = "1.0"
 local T = {
     x = 360, y = 200, w = 600, h = 440,
-    accent    = { 255, 255, 255 },
-    accent_bg = { 235, 235, 235, 255 },
-    bg        = { 250, 250, 250, 255 },
-    bg2       = { 242, 242, 242, 255 },
+    accent    = { 130, 110, 245, 255 },
+    accent_bg = { 235, 232, 248, 255 },
+    bg        = { 255, 255, 255, 255 },
+    bg2       = { 250, 250, 250, 255 },
     section   = { 255, 255, 255, 255 },
-    border    = { 220, 220, 220, 255 },
-    divider   = { 228, 228, 228, 255 },
-    text      = { 60, 60, 65, 255 },
-    textdim   = { 140, 140, 148, 255 },
-    texthi    = { 10, 10, 12, 255 },
-    widget    = { 245, 245, 245, 255 },
-    widgethi  = { 230, 230, 235, 255 },
+    border    = { 225, 225, 230, 255 },
+    divider   = { 232, 232, 236, 255 },
+    text      = { 70, 70, 78, 255 },
+    textdim   = { 150, 150, 158, 255 },
+    texthi    = { 15, 15, 20, 255 },
+    widget    = { 247, 247, 249, 255 },
+    widgethi  = { 235, 235, 240, 255 },
     title     = "discord.gg",
     title_tld = "/dadav",
     titlebar  = 44,
@@ -24,11 +26,10 @@ local T = {
     notif_w      = 290,
     notif_margin = 18,
     notif_life   = 3.5,
-    notif_info    = { 90, 90, 90 },
+    notif_info    = { 130, 110, 245 },
     notif_success = { 60, 170, 100 },
     notif_error   = { 220, 70, 70 },
 }
-
 local WH = { check = 28, button = 36, slider = 36, combo = 52, multicombo = 52, input = 52, color = 28 }
 local function wheight(wd)
     if wd.kind == "listbox" then
@@ -320,6 +321,18 @@ local function keyRepeat(k, t)
     return false
 end
 
+-- YENİ: widget-bazlı ok tuşu tekrar mantığı (slider için)
+local function widgetKeyRepeat(wd, key, t)
+    wd._kr2 = wd._kr2 or {}
+    if not keyDown(key) then wd._kr2[key] = nil; return false end
+    local s = wd._kr2[key]
+    if not s then wd._kr2[key] = { first = t, last = t }; return true end
+    if (t - s.first) >= REPEAT_DELAY and (t - s.last) >= REPEAT_RATE then
+        s.last = t; return true
+    end
+    return false
+end
+
 local function selBounds(wd)
     local c = wd._caret or #wd.value
     local a = wd._anchor or c
@@ -601,8 +614,25 @@ function Section:_widget(wd, x, y, w)
 
     elseif wd.kind == "slider" then
         local active = (M._slider == wd)
-        wd._h = approach(wd._h or 0, (active or hovering(x, y + 18 - 6, w, 18)) and 1 or 0, 16)
+        local hoverNow = hovering(x, y + 18 - 6, w, 18)
+        wd._h = approach(wd._h or 0, (active or hoverNow) and 1 or 0, 16)
         text(x, y, lerpc(T.text, T.texthi, wd._h), wd.label, FONT)
+
+        -- sol/sağ ok tuşu ile step kadar artır/azalt (slider hover'dayken, sürüklenmiyorken)
+        if hoverNow and not active then
+            local t = now()
+            local changed = false
+            if widgetKeyRepeat(wd, 0x25, t) then
+                wd.value = clamp(wd.value - wd.step, wd.min, wd.max); changed = true
+            end
+            if widgetKeyRepeat(wd, 0x27, t) then
+                wd.value = clamp(wd.value + wd.step, wd.min, wd.max); changed = true
+            end
+            if changed and wd.dec > 0 then
+                wd.value = tonumber(string.format("%." .. wd.dec .. "f", wd.value)) or wd.value
+            end
+        end
+
         local valstr
         if wd.fmt then valstr = string.format(wd.fmt, wd.value)
         elseif wd.dec > 0 then valstr = string.format("%." .. wd.dec .. "f", wd.value)
@@ -995,7 +1025,7 @@ M._hitlog = {
     max       = 6,
     colors    = {
         miss = { 235, 90, 90 },
-        hit  = { 139, 124, 246 },
+        hit  = { 130, 110, 245 },
         hurt = { 245, 170, 70 },
         kill = { 80, 200, 120 },
     },
