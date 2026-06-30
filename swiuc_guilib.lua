@@ -1,3 +1,5 @@
+local M = {}
+M.VERSION = "1.0"
 local T = {
     x = 360, y = 200, w = 600, h = 440,
     accent    = { 120, 105, 200, 255 },
@@ -28,7 +30,6 @@ local T = {
     notif_success = { 60, 150, 90 },
     notif_error   = { 200, 70, 70 },
 }
-
 local WH = { check = 28, button = 36, slider = 36, combo = 52, multicombo = 52, input = 52, color = 28 }
 local function wheight(wd)
     if wd.kind == "listbox" then
