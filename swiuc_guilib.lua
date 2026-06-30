@@ -1,19 +1,17 @@
-local M = {}
-M.VERSION = "1.0"
 local T = {
     x = 360, y = 200, w = 600, h = 440,
-    accent    = { 78, 135, 150, 255 },   -- Enabled, checkbox, slider
-    accent_bg = { 58, 68, 72, 255 },    -- Seçili arkaplan
-    bg        = { 32, 32, 32, 255 },    -- Ana arkaplan
-    bg2       = { 36, 36, 36, 255 },    -- İkinci arkaplan
-    section   = { 40, 40, 40, 255 },    -- Section kutuları
-    border    = { 55, 55, 55, 255 },    -- Çerçeveler
-    divider   = { 50, 50, 50, 255 },    -- Ayırıcı çizgiler
-    text      = { 175, 175, 175, 255 }, -- Normal yazılar
-    textdim   = { 125, 125, 125, 255 }, -- Soluk yazılar
-    texthi    = { 225, 225, 225, 255 }, -- Başlık yazıları
-    widget    = { 46, 46, 46, 255 },    -- Checkbox, combo vb.
-    widgethi  = { 58, 58, 58, 255 },    -- Hover efekti
+    accent    = { 120, 105, 200, 255 },
+    accent_bg = { 226, 222, 235, 255 },
+    bg        = { 232, 231, 228, 255 },
+    bg2       = { 224, 223, 220, 255 },
+    section   = { 238, 237, 234, 255 },
+    border    = { 206, 205, 200, 255 },
+    divider   = { 214, 213, 208, 255 },
+    text      = { 80, 79, 76, 255 },
+    textdim   = { 145, 144, 140, 255 },
+    texthi    = { 30, 29, 27, 255 },
+    widget    = { 222, 221, 217, 255 },
+    widgethi  = { 210, 209, 204, 255 },
     title     = "discord.gg",
     title_tld = "/dadav",
     titlebar  = 44,
@@ -26,10 +24,11 @@ local T = {
     notif_w      = 290,
     notif_margin = 18,
     notif_life   = 3.5,
-    notif_info    = { 64, 170, 190 },
+    notif_info    = { 120, 105, 200 },
     notif_success = { 60, 150, 90 },
     notif_error   = { 200, 70, 70 },
 }
+
 local WH = { check = 28, button = 36, slider = 36, combo = 52, multicombo = 52, input = 52, color = 28 }
 local function wheight(wd)
     if wd.kind == "listbox" then
