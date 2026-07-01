@@ -1,36 +1,42 @@
 local M = {}
-M.VERSION = "1.0"
+M.VERSION = "2.0-glass"
 local T = {
-    x = 360, y = 200, w = 600, h = 440,
-    accent    = { 240, 165, 195, 255 },
-    accent_bg = { 232, 218, 230, 255 }, 
-    bg      = { 108, 122, 196, 255 },   -- ana arkaplan, periwinkle mavi
-    bg2     = { 118, 132, 206, 255 },   -- ikincil arkaplan, biraz daha açık
-    section = { 100, 114, 188, 255 },   -- bölüm arkaplanı
-    accent    = { 248, 196, 214, 255 }, -- pembe accent (slider dolu kısmı)
-    accent_bg = { 252, 215, 228, 255 }, -- açık pembe (slider boş/track kısmı)
-    border    = { 90, 104, 178, 255 },  -- biraz daha koyu mavi border
-    divider   = { 95, 109, 182, 255 },
-    text = { 30, 28, 35, 255 }, -- açık/beyazımsı yazı (label'lar)
-    textdim   = { 200, 205, 225, 255 }, -- soluk yazı
-    texthi = { 200, 50, 50, 255 },   -- slider içindeki koyu değer yazısı
-    widget    = { 252, 210, 224, 255 }, -- pembe widget (checkbox/slider gövdesi)
-    widgethi  = { 240, 170, 195, 255 }, -- pembe hover/highlight
-    title     = "discord.gg",
-    title_tld = "/dadav",
-    titlebar  = 44,
-    pad       = 14,
-    sec_gap   = 12,
-    font      = { "Oxanium", "Space Grotesk", "Varela Round", "Tahoma", "Verdana" },
-    font_logo = { "Space Grotesk", "Oxanium", "Tahoma" },
-    font_size = 14,
-    notif_pos    = "bottom-right",
-    notif_w      = 290,
-    notif_margin = 18,
-    notif_life   = 3.5,
-    notif_info    = { 64, 170, 190 },
-    notif_success = { 60, 150, 90 },
-    notif_error   = { 200, 70, 70 },
+    x = 360, y = 200, w = 620, h = 460,
+    accent     = { 255, 192, 210, 255 },
+    accent_bg  = { 255, 255, 255, 24 },
+    accent_hi  = { 255, 220, 232, 255 },
+    bg         = { 10, 11, 20, 230 },
+    bg2        = { 16, 18, 30, 175 },
+    bg_top     = { 18, 20, 34, 245 },
+    bg_bot     = { 6, 7, 14, 245 },
+    section    = { 24, 26, 42, 135 },
+    section_hi = { 34, 36, 56, 155 },
+    border     = { 255, 255, 255, 34 },
+    border_hi  = { 255, 255, 255, 68 },
+    divider    = { 255, 255, 255, 20 },
+    glow       = { 255, 180, 210, 75 },
+    text       = { 220, 224, 236, 255 },
+    textdim    = { 125, 130, 152, 255 },
+    texthi     = { 255, 255, 255, 255 },
+    widget     = { 255, 255, 255, 14 },
+    widgethi   = { 255, 255, 255, 30 },
+    particle   = { 255, 255, 255, 255 },
+    radius     = 12,
+    title      = "discord.gg",
+    title_tld  = "/dadav",
+    titlebar   = 46,
+    pad        = 14,
+    sec_gap    = 12,
+    font       = { "Oxanium", "Space Grotesk", "Varela Round", "Tahoma", "Verdana" },
+    font_logo  = { "Space Grotesk", "Oxanium", "Tahoma" },
+    font_size  = 14,
+    notif_pos     = "bottom-right",
+    notif_w       = 290,
+    notif_margin  = 18,
+    notif_life    = 3.5,
+    notif_info    = { 255, 192, 210 },
+    notif_success = { 120, 220, 160 },
+    notif_error   = { 255, 110, 110 },
 }
 local WH = { check = 28, button = 36, slider = 36, combo = 52, multicombo = 52, input = 52, color = 28 }
 local function wheight(wd)
@@ -43,7 +49,8 @@ end
 
 local ANIM = { open = 13, tab = 17 }
 
-local floor, sqrt, mmin, mmax, mabs = math.floor, math.sqrt, math.min, math.max, math.abs
+local floor, sqrt, sin, cos, random, mmin, mmax, mabs =
+    math.floor, math.sqrt, math.sin, math.cos, math.random, math.min, math.max, math.abs
 local function rnd(n) return floor(n + 0.5) end
 local function clamp(v, lo, hi) if v < lo then return lo elseif v > hi then return hi else return v end end
 local function smooth(t) t = clamp(t, 0, 1); return t * t * (3 - 2 * t) end
@@ -169,6 +176,86 @@ end
 local function rbox(x, y, w, h, r, fill, brd)
     rfill(x, y, w, h, r, brd)
     rfill(x + 1, y + 1, w - 2, h - 2, r - 1, fill)
+end
+
+local function vgradient(x, y, w, h, top, bot)
+    local steps = mmax(1, mmin(floor(h), 48))
+    local sh = h / steps
+    for i = 0, steps - 1 do
+        local t = steps > 1 and (i / (steps - 1)) or 0
+        rect(x, y + i * sh, w, sh + 1, lerpc(top, bot, t))
+    end
+end
+
+local function line(x1, y1, x2, y2, c)
+    setcol(c)
+    pcall(function() draw.Line(rnd(x1), rnd(y1), rnd(x2), rnd(y2)) end)
+end
+
+local PARTICLE_N, PARTICLE_LINK = 62, 72
+local _particles, _particleWH
+
+local function ensureParticles(w, h)
+    if _particles and _particleWH == w .. "x" .. h then return end
+    _particleWH = w .. "x" .. h
+    _particles = {}
+    local seed = floor(now() * 1000) % 2147483647
+    pcall(function() math.randomseed(seed) end)
+    for i = 1, PARTICLE_N do
+        _particles[i] = {
+            x  = random() * w,
+            y  = random() * h,
+            vx = (random() - 0.5) * 34,
+            vy = (random() - 0.5) * 34,
+            r  = random(1, 3),
+            a  = random(55, 200),
+            ph = random() * 6.283,
+        }
+    end
+end
+
+local function updateParticles(w, h, dt)
+    if not _particles then return end
+    local t = now()
+    for _, p in ipairs(_particles) do
+        p.x = p.x + p.vx * dt
+        p.y = p.y + p.vy * dt
+        if p.x < -4 then p.x = w + 4 elseif p.x > w + 4 then p.x = -4 end
+        if p.y < -4 then p.y = h + 4 elseif p.y > h + 4 then p.y = -4 end
+        p._pulse = 0.55 + 0.45 * sin(t * 1.8 + p.ph)
+    end
+end
+
+local function drawParticleField(ox, oy, w, h)
+    if not _particles then return end
+    for i = 1, #_particles do
+        local a = _particles[i]
+        for j = i + 1, #_particles do
+            local b = _particles[j]
+            local dx, dy = a.x - b.x, a.y - b.y
+            local dist = sqrt(dx * dx + dy * dy)
+            if dist < PARTICLE_LINK then
+                local fa = rnd((1 - dist / PARTICLE_LINK) * 38 * (a._pulse or 1) * ALPHA)
+                if fa > 2 then
+                    line(ox + a.x, oy + a.y, ox + b.x, oy + b.y,
+                        { T.particle[1], T.particle[2], T.particle[3], fa })
+                end
+            end
+        end
+    end
+    for _, p in ipairs(_particles) do
+        local a = rnd(p.a * (p._pulse or 1) * ALPHA)
+        local sz = p.r * 2
+        rfill(ox + p.x - p.r, oy + p.y - p.r, sz, sz, p.r, { 255, 255, 255, a })
+    end
+end
+
+local function glassPanel(x, y, w, h, r, fill, brd)
+    r = r or T.radius
+    brd = brd or T.border
+    fill = fill or T.section
+    rbox(x, y, w, h, r, fill, brd)
+    rfill(x + 10, y + 1, w - 20, 1, 1, lerpc(T.border_hi, T.accent, 0.35))
 end
 
 local function frame(x, y, w, h, c)
@@ -569,11 +656,11 @@ function Section:render(x, y, w)
         local fh = (clipBottom - 12) - y
         if fh > h then h = fh end
     end
-    rbox(x, y, w, h, 6, T.section, T.border)
+    glassPanel(x, y, w, h, 10, T.section, T.border)
 
-    rfill(x + 14, y + 12, 3, 14, 1, T.accent)
-    text(x + 23, y + 12, T.texthi, self.title, FONT_B)
-    rect(x + 14, y + 33, w - 28, 1, T.divider)
+    rfill(x + 14, y + 13, 5, 5, 2, T.accent)
+    text(x + 25, y + 11, T.texthi, self.title, FONT_B)
+    rect(x + 14, y + 34, w - 28, 1, T.divider)
 
     local iy = y + 44
     local ix = x + 14
@@ -605,11 +692,15 @@ function Section:_widget(wd, x, y, w)
         if clicked(x, by, w, box) then wd.value = not wd.value end
 
     elseif wd.kind == "button" then
-        local bh  = 22
+        local bh  = 24
         local hov = hovering(x, y + 1, w, bh)
         wd._h = approach(wd._h or 0, hov and 1 or 0, 16)
-        rbox(x, y + 1, w, bh, 5, lerpc(T.widget, T.widgethi, wd._h), T.border)
-        text(x + w / 2, y + 6, lerpc(T.text, T.texthi, wd._h), wd.label, FONT, "center")
+        local fill = lerpc(T.widget, lerpc(T.widgethi, lerpc(T.accent_bg, T.accent, 0.45), wd._h), wd._h)
+        rbox(x, y + 1, w, bh, 7, fill, lerpc(T.border, T.accent, wd._h * 0.55))
+        if wd._h > 0.05 then
+            rfill(x + 8, y + bh - 1, w - 16, 1, 1, lerpc(T.glow, T.accent, wd._h))
+        end
+        text(x + w / 2, y + 7, lerpc(T.text, T.texthi, wd._h), wd.label, FONT, "center")
         if clicked(x, y + 1, w, bh) then
             local ok, err = pcall(wd.cb); if not ok then print("[fembsdap] button error: " .. tostring(err)) end
         end
@@ -642,8 +733,11 @@ function Section:_widget(wd, x, y, w)
         text(x + w, y, T.texthi, valstr, FONT, "right")
         local ty, th = y + 18, 6
         local frac = clamp((wd.value - wd.min) / (wd.max - wd.min), 0, 1)
-        rbox(x, ty, w, th, 3, lerpc(T.widget, T.widgethi, wd._h), T.border)
-        if frac > 0 then rfill(x, ty, mmax(th, w * frac), th, 3, T.accent, true, false, false, true) end
+        rbox(x, ty, w, th, 4, lerpc(T.widget, T.widgethi, wd._h), T.border)
+        if frac > 0 then
+            rfill(x, ty, mmax(th, w * frac), th, 4, lerpc(T.accent, T.accent_hi, 0.4), true, false, false, true)
+            rfill(x + mmax(th, w * frac) - 4, ty - 2, 4, th + 4, 2, { T.accent[1], T.accent[2], T.accent[3], rnd(180 * ALPHA) })
+        end
         if ms.pressed and not ms.consumed and hovering(x, ty - 6, w, th + 12) then
             ms.consumed = true; M._slider = wd
         end
@@ -744,7 +838,7 @@ function Section:_widget(wd, x, y, w)
         local ly = y
         if wd.label and wd.label ~= "" then text(x, y, T.text, wd.label, FONT); ly = y + 18 end
         local lh, itemH = (wd._fillH or wd.h), 20
-        rbox(x, ly, w, lh, 5, T.bg2, T.border)
+        rbox(x, ly, w, lh, 7, lerpc(T.bg2, T.section, 0.35), T.border)
         local n = #wd.items
         local visible = floor(lh / itemH)
         local maxScroll = mmax(0, n - visible)
@@ -762,10 +856,10 @@ function Section:_widget(wd, x, y, w)
                 local sel = (idx == wd.value)
                 local hov = hovering(x + 2, iy, listW - 4, itemH)
                 if sel then
-                    rfill(x + 3, iy + 1, listW - 6, itemH - 2, 3, T.accent_bg)
+                    rfill(x + 3, iy + 1, listW - 6, itemH - 2, 4, lerpc(T.accent_bg, T.accent, 0.3))
                     rfill(x + 3, iy + 1, 2, itemH - 2, 1, T.accent)
                 elseif hov then
-                    rfill(x + 3, iy + 1, listW - 6, itemH - 2, 3, T.widget)
+                    rfill(x + 3, iy + 1, listW - 6, itemH - 2, 4, T.widgethi)
                 end
                 text(x + 11, iy + 3, (sel or hov) and T.texthi or T.text, tostring(wd.items[idx]), FONT)
                 if clicked(x + 2, iy, listW - 4, itemH) then wd.value = idx end
@@ -1027,7 +1121,7 @@ M._hitlog = {
     max       = 6,
     colors    = {
         miss = { 235, 90, 90 },
-        hit  = { 64, 170, 190 },
+        hit  = { 130, 110, 245 },
         hurt = { 245, 170, 70 },
         kill = { 80, 200, 120 },
     },
@@ -1488,9 +1582,9 @@ function M:_tabInput(win)
 end
 
 function M:_drawTabBar(win)
-    text(win.x + 16, win.y + 17, T.texthi, T.title, FONT_LOGO)
+    text(win.x + 16, win.y + 18, T.texthi, T.title, FONT_LOGO)
     local logoW = textw(T.title)
-    text(win.x + 16 + logoW, win.y + 17, T.accent, T.title_tld, FONT_LOGO)
+    text(win.x + 16 + logoW, win.y + 18, T.accent, T.title_tld, FONT_LOGO)
     local pos = tabLayout(self._tabs, win)
 
     local act = pos[self._active]
@@ -1499,14 +1593,17 @@ function M:_drawTabBar(win)
     if not self._pillX then self._pillX, self._pillW = relX, tgtW end
     self._pillX = approach(self._pillX, relX, 16)
     self._pillW = approach(self._pillW, tgtW, 16)
-    rfill(win.x + self._pillX + 3, win.y + 9, self._pillW - 6, T.titlebar - 18, 5, T.accent_bg)
+    rfill(win.x + self._pillX + 2, win.y + 10, self._pillW - 4, T.titlebar - 20, 7,
+        lerpc(T.accent_bg, T.widgethi, 0.55))
+    rfill(win.x + self._pillX + 10, win.y + T.titlebar - 9, self._pillW - 20, 2, 1, T.accent)
 
     for i, t in ipairs(self._tabs) do
         local p = pos[i]
         local active = (i == self._active)
         local hov = hovering(p.x, win.y, p.w, T.titlebar)
         t._h = approach(t._h or 0, (active or hov) and 1 or 0, 16)
-        text(p.x + p.w / 2, win.y + 16, lerpc(T.textdim, T.texthi, t._h), t.name, FONT, "center")
+        local col = active and T.texthi or lerpc(T.textdim, T.texthi, t._h)
+        text(p.x + p.w / 2, win.y + 17, col, t.name, active and FONT_B or FONT, "center")
     end
 end
 
@@ -1729,9 +1826,16 @@ function M:_frame()
     ALPHA = ease
     local oy = (1 - ease) * 14
     local win = { x = real.x, y = real.y - oy, w = real.w, h = real.h }
+    local R = T.radius
 
-    rbox(win.x, win.y, win.w, win.h, 7, T.bg, T.border)
-    rfill(win.x + 1, win.y + T.titlebar, win.w - 2, win.h - T.titlebar - 1, 6, T.bg2, false, false, true, true)
+    ensureParticles(win.w, win.h)
+    updateParticles(win.w, win.h, DT)
+
+    rfill(win.x + 6, win.y + 10, win.w, win.h, R, { 0, 0, 0, rnd(70 * ease) })
+    rbox(win.x, win.y, win.w, win.h, R, T.bg_top, T.border_hi)
+    vgradient(win.x + 1, win.y + 1, win.w - 2, win.h - 2, T.bg_top, T.bg_bot)
+    drawParticleField(win.x, win.y, win.w, win.h)
+    rfill(win.x + 1, win.y + T.titlebar, win.w - 2, win.h - T.titlebar - 1, R, T.bg2, false, false, true, true)
 
     self:_tabInput(win)
     self:_drag(win)
@@ -1758,16 +1862,17 @@ function M:_frame()
         ms.wheel = 0
     end
 
-    rfill(win.x + 1, win.y + 1, win.w - 2, T.titlebar - 1, 6, T.bg, true, true, false, false)
-    rfill(win.x, win.y, win.w, 2, 7, T.accent, true, true, false, false)
-    rect(win.x + 1, win.y + T.titlebar, win.w - 2, 1, T.border)
+    vgradient(win.x + 1, win.y + 1, win.w - 2, T.titlebar - 1, T.bg_top, lerpc(T.bg_top, T.bg_bot, 0.45))
+    rfill(win.x + 1, win.y + 1, win.w - 2, 1, 6, T.accent, true, true, false, false)
+    rfill(win.x + 24, win.y + 2, win.w - 48, 1, 1, { T.glow[1], T.glow[2], T.glow[3], rnd(T.glow[4] * ease) })
+    rect(win.x + 1, win.y + T.titlebar, win.w - 2, 1, T.divider)
     self:_drawTabBar(win)
 
     if maxScroll > 0 then
         local th = mmax(20, (availH / contentH) * availH)
         local ty = win.y + T.titlebar + (availH - th) * (self._scroll / maxScroll)
-        rfill(win.x + win.w - 6, win.y + T.titlebar + 2, 3, availH - 4, 1, T.widget)
-        rfill(win.x + win.w - 6, ty, 3, th, 1, T.accent)
+        rfill(win.x + win.w - 6, win.y + T.titlebar + 2, 3, availH - 4, 2, T.widget)
+        rfill(win.x + win.w - 6, ty, 3, th, 2, T.accent)
     end
 
     self:_drawDropdown()
@@ -1792,8 +1897,13 @@ end
 function M:_initScreen()
     local win = self._win
     ALPHA = smooth(self._t)
-    rbox(win.x, win.y, win.w, win.h, 7, T.bg, T.border)
-    rfill(win.x, win.y, win.w, 2, 7, T.accent, true, true, false, false)
+    ensureParticles(win.w, win.h)
+    updateParticles(win.w, win.h, DT or 0.016)
+    rfill(win.x + 6, win.y + 10, win.w, win.h, T.radius, { 0, 0, 0, rnd(70 * ALPHA) })
+    rbox(win.x, win.y, win.w, win.h, T.radius, T.bg_top, T.border_hi)
+    vgradient(win.x + 1, win.y + 1, win.w - 2, win.h - 2, T.bg_top, T.bg_bot)
+    drawParticleField(win.x, win.y, win.w, win.h)
+    rfill(win.x + 1, win.y + 1, win.w - 2, 1, 6, T.accent, true, true, false, false)
     local dots = string.rep(".", floor(now() * 2) % 4)
     text(win.x + win.w / 2, win.y + win.h / 2 - 12, T.texthi, "Initialization in progress" .. dots, FONT_B, "center")
     text(win.x + win.w / 2, win.y + win.h / 2 + 12, T.textdim, "fetching fonts, please wait", FONT, "center")
