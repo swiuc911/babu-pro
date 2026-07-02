@@ -29,6 +29,9 @@ local T = {
     notif_info    = { 70, 170, 255 },
     notif_success = { 60, 220, 150 },
     notif_error   = { 255, 75, 95 },
+    notif_error   = { 255, 75, 95 },
+    snow       = { 140, 190, 255, 210 }, 
+    snow_count = 42,                     
 }
 local WH = { check = 28, button = 36, slider = 36, combo = 52, multicombo = 52, input = 52, color = 28 }
 local function wheight(wd)
@@ -1001,6 +1004,45 @@ function Tab:render(x, y, w)
     local sub = self.subs[self._activeSub]
     if sub then renderContainer(sub, x + (1 - e) * 16, y + barH + T.sec_gap, w) end
 end
+-- ================= KAR TANECİKLERİ (mavi, döngüsel) =================
+local sin, rand = math.sin, math.random
+pcall(function() math.randomseed(os.time()) end)
+
+local function makeSnow(win, count)
+    local ps = {}
+    for i = 1, count do
+        ps[i] = {
+            ox    = rand() * win.w,
+            oy    = rand() * win.h,
+            r     = 1.3 + rand() * 2.0,
+            spd   = 16 + rand() * 24,
+            phase = rand() * 6.2832,
+            freq  = 0.5 + rand() * 0.7,
+            amp   = 5 + rand() * 12,
+            a     = 110 + rand(0, 120),
+        }
+    end
+    return ps
+end
+
+local function updateSnow(ps, win, dt)
+    for i = 1, #ps do
+        local p = ps[i]
+        p.oy = p.oy + p.spd * dt
+        if p.oy > win.h then p.oy = p.oy - win.h end -- alta varınca tepeye sar
+        p.phase = p.phase + p.freq * dt
+    end
+end
+
+local function drawSnow(ps, win)
+    local col = T.snow or { 140, 190, 255, 210 }
+    for i = 1, #ps do
+        local p = ps[i]
+        local ox = (p.ox + sin(p.phase) * p.amp) % win.w -- hafif sağa-sola salınım
+        local x, y = win.x + ox, win.y + p.oy
+        rfill(x - p.r, y - p.r, p.r * 2, p.r * 2, p.r, { col[1], col[2], col[3], p.a })
+    end
+end
 
 M._tabs   = {}
 M._active = 1
@@ -1728,6 +1770,9 @@ function M:_frame()
     local oy = (1 - ease) * 14
     local win = { x = real.x, y = real.y - oy, w = real.w, h = real.h }
 
+    if not self._snowP then self._snowP = makeSnow(win, T.snow_count or 40) end
+    updateSnow(self._snowP, win, DT)
+
     rbox(win.x, win.y, win.w, win.h, 7, T.bg, T.border)
     rfill(win.x + 1, win.y + T.titlebar, win.w - 2, win.h - T.titlebar - 1, 6, T.bg2, false, false, true, true)
 
@@ -1770,7 +1815,15 @@ function M:_frame()
 
     self:_drawDropdown()
     self:_cpDraw()
+    self:_drawDropdown()
+    self:_cpDraw()
 
+    local _snowA = ALPHA
+    ALPHA = ease
+    pcall(function() drawSnow(self._snowP, win) end)
+    ALPHA = _snowA
+
+    if M._focus and ms.pressed and not ms.consumed then M._focus = nil end
     if M._focus and ms.pressed and not ms.consumed then M._focus = nil end
 
     real.x = win.x
