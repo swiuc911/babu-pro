@@ -1,4 +1,4 @@
-local USER    = "swiuc911"
+local USER    = "swiuc"
 local REPO    = "babu-pro"
 local VERSION = "latest"
 
