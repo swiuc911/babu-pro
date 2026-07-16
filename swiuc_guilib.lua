@@ -1,7 +1,11 @@
 local M = {}
 M.VERSION = "1.0"
+
 local T = {
     x = 360, y = 200, w = 600, h = 440,
+
+    accent    = { 130, 90, 255, 255 }, 
+    accent_bg = { 38, 34, 58, 255 },  
     bg      = { 16, 18, 24, 255 },     
     bg2     = { 22, 25, 32, 255 },     
     section = { 20, 22, 29, 255 },     
@@ -14,14 +18,16 @@ local T = {
     texthi    = { 80, 220, 255, 255 },  
     widget    = { 28, 30, 38, 255 },    
     widgethi  = { 130, 90, 255, 255 }, 
+
     title     = "discord.gg",
     title_tld = "/dadav",
     titlebar  = 44,
     pad       = 14,
     sec_gap   = 12,
-    font      = { "Manrope", "Poppins", "Inter", "Tahoma", "Verdana" },
-    font_logo = { "Poppins", "Manrope", "Tahoma" },
+    font      = { "Oxanium", "Space Grotesk", "Varela Round", "Tahoma", "Verdana" },
+    font_logo = { "Space Grotesk", "Oxanium", "Tahoma" },
     font_size = 14,
+
     notif_pos    = "bottom-right",
     notif_w      = 290,
     notif_margin = 18,
@@ -29,10 +35,8 @@ local T = {
     notif_info    = { 70, 170, 255 },
     notif_success = { 60, 220, 150 },
     notif_error   = { 255, 75, 95 },
-    notif_error   = { 255, 75, 95 },
-    snow       = { 140, 190, 255, 210 }, 
-    snow_count = 42,                     
 }
+
 local WH = { check = 28, button = 36, slider = 36, combo = 52, multicombo = 52, input = 52, color = 28 }
 local function wheight(wd)
     if wd.kind == "listbox" then
@@ -98,7 +102,7 @@ local function initFonts()
     FONT,      picked = mk(T.font, T.font_size, 400)
     FONT_B            = mk(T.font, T.font_size, 600)
     FONT_LOGO         = mk(T.font_logo, T.font_size + 2, 700) or FONT_B
-    print("[dctap] font: " .. tostring(picked))
+    print("[femboytap] font: " .. tostring(picked))
 end
 
 local function fontInitCoro()
@@ -321,18 +325,6 @@ local function keyRepeat(k, t)
     local s = _kr[k]
     if not s then _kr[k] = { first = t, last = t }; return true end
     if (t - s.first) >= REPEAT_DELAY and (t - s.last) >= REPEAT_RATE then s.last = t; return true end
-    return false
-end
-
--- YENİ: widget-bazlı ok tuşu tekrar mantığı (slider için)
-local function widgetKeyRepeat(wd, key, t)
-    wd._kr2 = wd._kr2 or {}
-    if not keyDown(key) then wd._kr2[key] = nil; return false end
-    local s = wd._kr2[key]
-    if not s then wd._kr2[key] = { first = t, last = t }; return true end
-    if (t - s.first) >= REPEAT_DELAY and (t - s.last) >= REPEAT_RATE then
-        s.last = t; return true
-    end
     return false
 end
 
@@ -612,30 +604,13 @@ function Section:_widget(wd, x, y, w)
         rbox(x, y + 1, w, bh, 5, lerpc(T.widget, T.widgethi, wd._h), T.border)
         text(x + w / 2, y + 6, lerpc(T.text, T.texthi, wd._h), wd.label, FONT, "center")
         if clicked(x, y + 1, w, bh) then
-            local ok, err = pcall(wd.cb); if not ok then print("[fembsdap] button error: " .. tostring(err)) end
+            local ok, err = pcall(wd.cb); if not ok then print("[femboytap] button error: " .. tostring(err)) end
         end
 
     elseif wd.kind == "slider" then
         local active = (M._slider == wd)
-        local hoverNow = hovering(x, y + 18 - 6, w, 18)
-        wd._h = approach(wd._h or 0, (active or hoverNow) and 1 or 0, 16)
+        wd._h = approach(wd._h or 0, (active or hovering(x, y + 18 - 6, w, 18)) and 1 or 0, 16)
         text(x, y, lerpc(T.text, T.texthi, wd._h), wd.label, FONT)
-
-        -- sol/sağ ok tuşu ile step kadar artır/azalt (slider hover'dayken, sürüklenmiyorken)
-        if hoverNow and not active then
-            local t = now()
-            local changed = false
-            if widgetKeyRepeat(wd, 0x25, t) then
-                wd.value = clamp(wd.value - wd.step, wd.min, wd.max); changed = true
-            end
-            if widgetKeyRepeat(wd, 0x27, t) then
-                wd.value = clamp(wd.value + wd.step, wd.min, wd.max); changed = true
-            end
-            if changed and wd.dec > 0 then
-                wd.value = tonumber(string.format("%." .. wd.dec .. "f", wd.value)) or wd.value
-            end
-        end
-
         local valstr
         if wd.fmt then valstr = string.format(wd.fmt, wd.value)
         elseif wd.dec > 0 then valstr = string.format("%." .. wd.dec .. "f", wd.value)
@@ -791,7 +766,7 @@ function Section:_widget(wd, x, y, w)
         if wd.fn then
             UI._x, UI._cy, UI._w = x, y, w
             local ok, err = pcall(wd.fn, UI, x, y, w)
-            if not ok then print("[dctap] custom widget error: " .. tostring(err)) end
+            if not ok then print("[femboytap] custom widget error: " .. tostring(err)) end
             local used = UI._cy - y
             wd._measured = used > 0 and used or wd.h
         end
@@ -845,7 +820,7 @@ local function renderSectionAt(s, x, y, w)
     if clipTop and (y + h) <= clipTop then return h end
     local rh = h
     local ok, err = pcall(function() rh = s:render(x, y, w) or h end)
-    if not ok then print("[ffdtap] section '" .. tostring(s.title) .. "' error: " .. tostring(err)); return h end
+    if not ok then print("[femboytap] section '" .. tostring(s.title) .. "' error: " .. tostring(err)); return h end
     return rh
 end
 
@@ -1004,45 +979,6 @@ function Tab:render(x, y, w)
     local sub = self.subs[self._activeSub]
     if sub then renderContainer(sub, x + (1 - e) * 16, y + barH + T.sec_gap, w) end
 end
--- ================= KAR TANECİKLERİ (mavi, döngüsel) =================
-local sin, rand = math.sin, math.random
-pcall(function() math.randomseed(os.time()) end)
-
-local function makeSnow(win, count)
-    local ps = {}
-    for i = 1, count do
-        ps[i] = {
-            ox    = rand() * win.w,
-            oy    = rand() * win.h,
-            r     = 1.3 + rand() * 2.0,
-            spd   = 16 + rand() * 24,
-            phase = rand() * 6.2832,
-            freq  = 0.5 + rand() * 0.7,
-            amp   = 5 + rand() * 12,
-            a     = 110 + rand(0, 120),
-        }
-    end
-    return ps
-end
-
-local function updateSnow(ps, win, dt)
-    for i = 1, #ps do
-        local p = ps[i]
-        p.oy = p.oy + p.spd * dt
-        if p.oy > win.h then p.oy = p.oy - win.h end -- alta varınca tepeye sar
-        p.phase = p.phase + p.freq * dt
-    end
-end
-
-local function drawSnow(ps, win)
-    local col = T.snow or { 140, 190, 255, 210 }
-    for i = 1, #ps do
-        local p = ps[i]
-        local ox = (p.ox + sin(p.phase) * p.amp) % win.w -- hafif sağa-sola salınım
-        local x, y = win.x + ox, win.y + p.oy
-        rfill(x - p.r, y - p.r, p.r * 2, p.r * 2, p.r, { col[1], col[2], col[3], p.a })
-    end
-end
 
 M._tabs   = {}
 M._active = 1
@@ -1067,7 +1003,7 @@ M._hitlog = {
     max       = 6,
     colors    = {
         miss = { 235, 90, 90 },
-        hit  = { 64, 170, 190 },
+        hit  = { 139, 124, 246 },
         hurt = { 245, 170, 70 },
         kill = { 80, 200, 120 },
     },
@@ -1076,8 +1012,8 @@ M._hitlog = {
 M._watermark = {
     enabled    = false,
     parts      = { cheat = false, lua = true, user = false, nick = true, fps = true, ping = true },
-    cheat_name = "AMINOĞLUWARE.NET",
-    lua_name   = "SWİUC.CC",
+    cheat_name = "AIMWARE.NET",
+    lua_name   = "FEMBOYTAP.CC",
     user       = nil,
     nick       = nil,
     ping       = nil,
@@ -1449,8 +1385,8 @@ function M:_drawWatermark()
     end
 
     local segs = {}
-    if wm.parts.cheat then segs[#segs + 1] = nameSeg(wm.cheat_name or "AMINOĞLUWARE") end
-    if wm.parts.lua   then segs[#segs + 1] = nameSeg(wm.lua_name or "SWİUC.CC") end
+    if wm.parts.cheat then segs[#segs + 1] = nameSeg(wm.cheat_name or "AIMWARE.NET") end
+    if wm.parts.lua   then segs[#segs + 1] = nameSeg(wm.lua_name or "FEMBOYTAP.CC") end
     if wm.parts.user  then segs[#segs + 1] = { { tostring(wm.user or "?"), T.text, FONT } } end
     if wm.parts.nick  then segs[#segs + 1] = { { tostring(wm.nick or "?"), T.text, FONT } } end
     if wm.parts.fps   then segs[#segs + 1] = { { floor(wm._fps + 0.5) .. " fps", T.text, FONT } } end
@@ -1770,9 +1706,6 @@ function M:_frame()
     local oy = (1 - ease) * 14
     local win = { x = real.x, y = real.y - oy, w = real.w, h = real.h }
 
-    if not self._snowP then self._snowP = makeSnow(win, T.snow_count or 40) end
-    updateSnow(self._snowP, win, DT)
-
     rbox(win.x, win.y, win.w, win.h, 7, T.bg, T.border)
     rfill(win.x + 1, win.y + T.titlebar, win.w - 2, win.h - T.titlebar - 1, 6, T.bg2, false, false, true, true)
 
@@ -1792,7 +1725,7 @@ function M:_frame()
     clipTop, clipBottom = win.y + T.titlebar, win.y + win.h
     if tab then
         local ok, err = pcall(function() tab:render(cx, cy, cw) end)
-        if not ok then print("[dc] tab '" .. tostring(tab.name) .. "' error: " .. tostring(err)) end
+        if not ok then print("[femboytap] tab '" .. tostring(tab.name) .. "' error: " .. tostring(err)) end
     end
     clipTop, clipBottom = nil, nil
 
@@ -1815,15 +1748,7 @@ function M:_frame()
 
     self:_drawDropdown()
     self:_cpDraw()
-    self:_drawDropdown()
-    self:_cpDraw()
 
-    local _snowA = ALPHA
-    ALPHA = ease
-    pcall(function() drawSnow(self._snowP, win) end)
-    ALPHA = _snowA
-
-    if M._focus and ms.pressed and not ms.consumed then M._focus = nil end
     if M._focus and ms.pressed and not ms.consumed then M._focus = nil end
 
     real.x = win.x
@@ -1863,7 +1788,7 @@ function M:Build(opts)
     _clock    = resolveClock()
     initFonts()
     self._initco = coroutine.create(fontInitCoro)
-    if not _getMouse then print("[fembdswtap] WARNING: mouse position API not found -- cursor won't track") end
+    if not _getMouse then print("[femboytap] WARNING: mouse position API not found -- cursor won't track") end
 
     local menuRef
     pcall(function() menuRef = gui.Reference("MENU") end)
@@ -1903,7 +1828,7 @@ function M:Build(opts)
         if not open and self._t < 0.005 then self._t = 0; return end
 
         local ok, err = pcall(function() self:_frame() end)
-        if not ok then print("[dcoytap] frame error: " .. tostring(err)) end
+        if not ok then print("[femboytap] frame error: " .. tostring(err)) end
     end)
 
     pcall(function() callbacks.Register("CreateMove", function(cmd)
